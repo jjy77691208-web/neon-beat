@@ -1,0 +1,1867 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>네온 비트: 리듬 세션</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rubik:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+
+  :root{
+    --bg:#080814;
+    --bg2:#150a26;
+    --lane1:#ff3d81;
+    --lane2:#ffd23f;
+    --lane3:#3fe0ff;
+    --lane4:#9a4dff;
+    --text:#f2eefc;
+    --dim:#83799e;
+  }
+
+  *{ box-sizing:border-box; margin:0; padding:0; }
+
+  html,body{
+    height:100%;
+    background: radial-gradient(ellipse at 50% 20%, var(--bg2) 0%, var(--bg) 65%);
+    overflow:hidden;
+    font-family:'Rubik', sans-serif;
+    color:var(--text);
+    user-select:none;
+    touch-action:none;
+  }
+
+  #wrap{
+    position:relative;
+    width:100vw;
+    height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+
+  canvas{ display:block; }
+
+  #hud{
+    position:absolute;
+    top:0; left:0; right:0;
+    display:flex;
+    justify-content:space-between;
+    padding:12px 16px;
+    padding-top:max(12px, env(safe-area-inset-top));
+    pointer-events:none;
+    font-family:'Orbitron', sans-serif;
+    z-index:5;
+  }
+  @media (orientation: landscape){
+    #hud{ padding:8px 16px; }
+    .hud-value{ font-size:18px !important; }
+    #judge{ font-size:28px !important; top:30% !important; }
+    #timing-side{ top:68% !important; }
+  }
+
+  .hud-block{ display:flex; flex-direction:column; gap:2px; }
+  .hud-label{ font-size:10px; letter-spacing:2px; color:var(--dim); }
+  .hud-value{
+    font-size:22px; font-weight:700; color:var(--lane3);
+    text-shadow:0 0 12px rgba(63,224,255,0.6);
+    transition: transform 0.1s ease-out;
+  }
+  #combo-value{ color:var(--lane1); text-shadow:0 0 12px rgba(255,61,129,0.6); }
+  #acc-value{ color:var(--lane2); text-shadow:0 0 10px rgba(255,210,63,0.5); }
+
+  .pop { transform: scale(1.4); }
+
+  #judge{
+    position:absolute;
+    top:38%; left:50%;
+    transform:translate(-50%,-50%);
+    font-family:'Orbitron', sans-serif;
+    font-weight:900;
+    font-size:36px;
+    letter-spacing:2px;
+    pointer-events:none;
+    opacity:0;
+    z-index:6;
+    transition: opacity 0.1s;
+  }
+
+  #timing-side{
+    position:absolute;
+    left:50%;
+    top:74%;
+    transform:translate(-50%, -50%);
+    font-family:'Orbitron', sans-serif;
+    font-weight:500;
+    font-size:11px;
+    letter-spacing:1px;
+    color:rgba(170,170,190,0.5);
+    pointer-events:none;
+    opacity:0;
+    z-index:6;
+    white-space:nowrap;
+  }
+
+  .overlay{
+    position:absolute;
+    inset:0;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    background:rgba(6,4,14,0.75);
+    backdrop-filter:blur(6px);
+    z-index:10;
+    padding:24px;
+  }
+  .hidden{ display:none; }
+
+  .title{
+    font-family:'Orbitron', sans-serif;
+    font-weight:900;
+    font-size:clamp(26px,6vw,44px);
+    letter-spacing:1px;
+    background:linear-gradient(90deg, var(--lane3), var(--lane1));
+    -webkit-background-clip:text;
+    background-clip:text;
+    color:transparent;
+    margin-bottom:10px;
+  }
+
+  .subtitle{
+    color:var(--dim);
+    font-size:14px;
+    max-width:440px;
+    line-height:1.7;
+    margin-bottom:24px;
+  }
+  .subtitle b{ color:var(--text); }
+
+  .keys-demo{
+    display:flex;
+    gap:10px;
+    margin-bottom:26px;
+  }
+  .key-chip{
+    font-family:'Orbitron', sans-serif;
+    font-weight:700;
+    font-size:14px;
+    width:42px; height:42px;
+    border-radius:10px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:#0a0a12;
+  }
+
+  .btn{
+    font-family:'Orbitron', sans-serif;
+    font-weight:700;
+    font-size:15px;
+    letter-spacing:1px;
+    background:linear-gradient(90deg, var(--lane3), #7fe9ff);
+    color:#04121a;
+    border:none;
+    padding:14px 34px;
+    border-radius:999px;
+    cursor:pointer;
+    box-shadow:0 0 24px rgba(63,224,255,0.45);
+    transition:transform .15s ease, box-shadow .15s ease;
+  }
+  .btn:hover{ transform:translateY(-2px); box-shadow:0 0 34px rgba(63,224,255,0.65); }
+  .btn:focus-visible{ outline:2px solid #fff; outline-offset:3px; }
+  .btn.ghost{
+    background:transparent;
+    color:var(--text);
+    box-shadow:none;
+    border:1px solid rgba(255,255,255,0.25);
+  }
+
+  .score-line{
+    font-family:'Orbitron', sans-serif;
+    font-size:15px;
+    color:var(--dim);
+    margin-top:16px;
+  }
+  .score-line span{ color:var(--lane2); font-weight:700; }
+
+  #rank{
+    font-family:'Orbitron', sans-serif;
+    font-weight:900;
+    font-size:56px;
+    margin:10px 0;
+    background:linear-gradient(90deg, var(--lane2), var(--lane1));
+    -webkit-background-clip:text;
+    background-clip:text;
+    color:transparent;
+  }
+
+  #touch-hint{
+    position:absolute;
+    bottom:14px; left:0; right:0;
+    text-align:center;
+    font-size:11px;
+    color:var(--dim);
+    letter-spacing:1px;
+    z-index:5;
+    pointer-events:none;
+  }
+
+  #pause-btn{
+    position:absolute;
+    top:16px; right:20px;
+    z-index:6;
+    background:rgba(255,255,255,0.08);
+    border:1px solid rgba(255,255,255,0.2);
+    color:var(--text);
+    font-family:'Orbitron', sans-serif;
+    font-size:11px;
+    letter-spacing:1px;
+    padding:8px 14px;
+    border-radius:999px;
+    cursor:pointer;
+  }
+  #pause-btn.hidden{ display:none; }
+
+  #mute-btn{
+    position:absolute;
+    top:16px; right:100px;
+    z-index:6;
+    background:rgba(255,255,255,0.08);
+    border:1px solid rgba(255,255,255,0.2);
+    color:var(--text);
+    font-family:'Orbitron', sans-serif;
+    font-size:11px;
+    letter-spacing:1px;
+    padding:8px 12px;
+    border-radius:999px;
+    cursor:pointer;
+  }
+  #mute-btn.hidden{ display:none; }
+
+  #rotate-lock{
+    position:fixed;
+    inset:0;
+    z-index:100;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    background:rgba(6,4,14,0.92);
+    backdrop-filter:blur(6px);
+    text-align:center;
+    padding:24px;
+    gap:10px;
+  }
+  #rotate-lock.hidden{ display:none; }
+  .rotate-icon{ font-size:52px; }
+  .rotate-title{
+    font-family:'Orbitron', sans-serif;
+    font-weight:900;
+    font-size:22px;
+    letter-spacing:1px;
+    background:linear-gradient(90deg, var(--lane3), var(--lane1));
+    -webkit-background-clip:text;
+    background-clip:text;
+    color:transparent;
+  }
+  .rotate-sub{ color:var(--dim); font-size:14px; line-height:1.6; }
+
+  .offset-row{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:10px;
+    margin-bottom:6px;
+    font-family:'Orbitron', sans-serif;
+  }
+  .offset-label{ font-size:11px; letter-spacing:1px; color:var(--dim); }
+  .offset-value{
+    min-width:72px;
+    text-align:center;
+    font-size:15px;
+    font-weight:700;
+    color:var(--lane3);
+  }
+  .offset-btn{
+    width:36px; height:36px;
+    border-radius:10px;
+    border:1px solid rgba(255,255,255,0.25);
+    background:rgba(255,255,255,0.08);
+    color:var(--text);
+    font-size:18px;
+    cursor:pointer;
+    line-height:1;
+  }
+  .offset-btn:active{ background:rgba(63,224,255,0.25); }
+  .offset-hint{
+    font-size:11px;
+    color:var(--dim);
+    margin-bottom:18px;
+  }
+</style>
+</head>
+<body>
+
+<div id="rotate-lock" class="hidden">
+  <div class="rotate-icon">📱</div>
+  <div class="rotate-title">화면 회전</div>
+  <div class="rotate-sub">세로·가로 모두 플레이할 수 있어요.</div>
+</div>
+
+<div id="wrap">
+  
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <div class="hud-block">
+      <div class="hud-label">점수</div>
+      <div class="hud-value" id="score-value">0</div>
+    </div>
+    <div class="hud-block" style="align-items:center;">
+      <div class="hud-label">콤보</div>
+      <div class="hud-value" id="combo-value">0</div>
+    </div>
+    <div class="hud-block" style="align-items:flex-end;">
+      <div class="hud-label">정확도</div>
+      <div class="hud-value" id="acc-value">100%</div>
+    </div>
+  </div>
+
+  <div id="judge"></div>
+  <div id="timing-side"></div>
+  <div id="touch-hint">레인을 탭하거나 D F J K 키를 눌러 노트를 맞추세요 · P 로 일시정지</div>
+
+  <button id="mute-btn" class="hidden">🔊 소리</button>
+  <button id="pause-btn" class="hidden">일시정지</button>
+
+  <div class="overlay" id="start-screen">
+    <div class="title">네온 비트</div>
+    <div class="subtitle">
+      네 개의 레인을 따라 내려오는 노트를 <b>판정선</b>에 맞춰 정확히 눌러보세요.<br>
+      타이밍이 정확할수록 <b>Perfect</b>, 콤보가 쌓일수록 점수가 커집니다.<br>
+      <b style="color:var(--lane1)">홀드 노트</b>는 머리를 맞춘 뒤 꼬리까지 꾹 누르고 있어야 합니다.<br>
+      <b style="color:var(--lane2)">랜덤 차트</b> · <b style="color:var(--lane3)">커스텀 차트</b>(에디터) · 오프셋 조절
+    </div>
+    <div class="keys-demo">
+      <div class="key-chip" style="background:#ff3d81;">D</div>
+      <div class="key-chip" style="background:#ffd23f;">F</div>
+      <div class="key-chip" style="background:#3fe0ff;">J</div>
+      <div class="key-chip" style="background:#9a4dff;">K</div>
+    </div>
+    <div class="offset-row" id="offset-row">
+      <span class="offset-label">타이밍 오프셋</span>
+      <button type="button" class="offset-btn" id="offset-minus" aria-label="오프셋 감소">−</button>
+      <span class="offset-value" id="offset-value">0 ms</span>
+      <button type="button" class="offset-btn" id="offset-plus" aria-label="오프셋 증가">+</button>
+    </div>
+    <div class="offset-hint">입력이 늦으면 +, 빠르면 − (5ms 단위)</div>
+    <div class="offset-row" id="speed-row">
+      <span class="offset-label">노트 속도</span>
+      <button type="button" class="offset-btn" id="speed-minus" aria-label="속도 감소">−</button>
+      <span class="offset-value" id="speed-value">1.00×</span>
+      <button type="button" class="offset-btn" id="speed-plus" aria-label="속도 증가">+</button>
+    </div>
+    <div class="offset-hint">높을수록 노트가 빨리 떨어짐 (0.75× ~ 2.00×)</div>
+    <button class="btn" id="start-btn">랜덤 플레이</button>
+    <button class="btn" id="custom-btn" style="margin-top:10px;background:rgba(154,77,255,0.2);border-color:rgba(154,77,255,0.45);">커스텀 차트 플레이</button>
+    <button class="btn" id="import-custom-btn" style="margin-top:8px;background:rgba(255,255,255,0.06);font-size:12px;">커스텀 JSON 붙여넣기</button>
+    <a class="btn" id="editor-link" href="neon-beat-editor.html" style="margin-top:10px;text-decoration:none;display:inline-block;background:rgba(63,224,255,0.12);">차트 에디터 열기</a>
+    <button class="btn" id="help-btn" style="margin-top:10px;background:rgba(255,255,255,0.06);font-size:13px;">도움말 · 기능 설명</button>
+    <div id="start-msg" style="margin-top:10px;font-size:12px;color:#ffd23f;min-height:18px;"></div>
+    <div class="score-line">최고 점수 <span id="best-start">0</span></div>
+  </div>
+
+  <div class="overlay hidden" id="help-screen" style="z-index:25;overflow:auto;padding:24px 16px;">
+    <div class="title" style="font-size:28px;margin-bottom:8px;">도움말</div>
+    <div class="subtitle" style="text-align:left;max-width:420px;margin:0 auto 16px;line-height:1.55;">
+      <b style="color:var(--lane2)">조작</b><br>
+      · 키보드 <b>D F J K</b> (왼쪽→오른쪽 레인)<br>
+      · 터치·클릭으로 해당 레인 입력<br>
+      · 홀드는 판정선에서 머리를 맞춘 뒤 <b>끝까지 유지</b><br><br>
+      <b style="color:var(--lane1)">판정 · 오프셋</b><br>
+      · Perfect / Great / Good / Miss<br>
+      · 입력이 늦게 느껴지면 오프셋 <b>+</b>, 빠르면 <b>−</b><br>
+      · 결과 화면의 빠름/느림 개수를 참고<br><br>
+      <b style="color:var(--lane3)">노트 속도</b><br>
+      · 0.75× ~ 2.00× · 높을수록 빨리 떨어짐<br>
+      · 설정은 브라우저에 저장됨<br><br>
+      <b style="color:var(--lane0)">플레이 모드</b><br>
+      · <b>랜덤</b> — 매번 다른 패턴 + 합성 비트<br>
+      · <b>커스텀</b> — 에디터에서 만든 채보<br>
+      · 커스텀에 Song ID가 있으면 해당 음악 재생<br>
+      · 음악이 안 나오면 에디터에서 같은 브라우저로 곡을 다시 선택<br><br>
+      <b>기타</b><br>
+      · 세로·가로 화면 모두 플레이 가능<br>
+      · 일시정지 / 음소거 지원<br>
+      · 빈 입력(허공 클릭)은 점수·정확도에 패널티
+    </div>
+    <button class="btn" id="help-close-btn">닫기</button>
+  </div>
+
+  <div class="overlay hidden" id="pause-screen">
+    <div class="title" style="font-size:32px;">일시정지</div>
+    <div class="subtitle">언제든 다시 시작할 수 있어요.</div>
+    <button class="btn" id="resume-btn">계속하기</button>
+  </div>
+
+  <div class="overlay hidden" id="end-screen">
+    <div class="title" id="end-title">세션 종료</div>
+    <div id="rank">-</div>
+    <div class="subtitle" style="margin-bottom:6px;">최종 점수 <span style="color:var(--lane2); font-weight:700;" id="final-score">0</span></div>
+    <div class="score-line">최고 콤보 <span id="final-combo">0</span> · 정확도 <span id="final-acc">0%</span></div>
+    <div class="score-line">빠름 <span id="final-early">0</span> · 느림 <span id="final-late">0</span></div>
+    <div class="score-line">최고 점수 <span id="best-end">0</span></div>
+    <div class="offset-row" style="margin-top:14px;">
+      <span class="offset-label">판정 오프셋</span>
+      <button type="button" class="offset-btn" id="offset-minus-end" aria-label="오프셋 감소">−</button>
+      <span class="offset-value" id="offset-value-end">0 ms</span>
+      <button type="button" class="offset-btn" id="offset-plus-end" aria-label="오프셋 증가">+</button>
+    </div>
+    <div class="offset-row">
+      <span class="offset-label">노트 속도</span>
+      <button type="button" class="offset-btn" id="speed-minus-end" aria-label="속도 감소">−</button>
+      <span class="offset-value" id="speed-value-end">1.00×</span>
+      <button type="button" class="offset-btn" id="speed-plus-end" aria-label="속도 증가">+</button>
+    </div>
+    <div class="offset-hint">느림이 많으면 + · 빠름이 많으면 − · 속도 조절 후 다시 플레이</div>
+    <button class="btn" id="restart-btn" style="margin-top:12px;">다시 플레이</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  // ==================== 설정 (고난이도) ====================
+  const BPM = 176;                          // 음악 BPM (더 빠름)
+  const BEAT_MS = 60000 / BPM;              // 1박 시간(ms)
+  const BASE_APPROACH_MS = 900;             // 1.0× 기준 접근 시간
+  const PREP_MS = 3000;                     // 시작 준비 시간 (ms)
+  const JUDGE_Y_RATIO = 0.78;               // 판정선 위치 (원본)
+  // 노트 속도 배율 (높을수록 빨리 떨어짐 = 접근 시간 짧음)
+  let speedRate = parseFloat(localStorage.getItem('neonBeatSpeed') || '1') || 1;
+  speedRate = Math.max(0.75, Math.min(2, Math.round(speedRate * 20) / 20));
+  let cachedApproachMs = BASE_APPROACH_MS / speedRate;
+  function approachMs(){ return cachedApproachMs; }
+
+  // ===== 속도 트리거용 스크롤-시간 적분 =====
+  // 노트 위치를 "지금 속도 × 남은시간"으로 근사하면, 속도가 바뀌는 순간
+  // 화면 위 노트마다 남은시간이 달라서 서로 다른 비율로 튀어 간격이 일그러진다.
+  // 대신 시간 t까지 누적된 "스크롤량(rate를 시간에 대해 적분한 값)"을 구간별로
+  // 미리 계산해두고, 각 노트는 자신의 hitTime에 해당하는 스크롤값을 스폰 시 한 번만
+  // 캐싱한다. 그러면 트리거 순간에도 위치가 끊기지 않고 이어지며(연속),
+  // 노트 사이의 상대적 간격이 항상 정확하게 유지된다.
+  let speedSegs = [{ t0: 0, rate: 1 }];
+  let speedSegCum = [0];
+  function buildSpeedSegments(){
+    // 시작 배속 + 차트 속도 트리거로 구간별 rate 적분 테이블 구성.
+    // 위치는 항상 적분값 차이로 계산하므로 트리거 순간에도 끊기지 않음.
+    speedSegs = [{ t0: 0, rate: speedRate }];
+    let lastRate = speedRate;
+    for(const tr of chartSpeedTriggers){
+      const t0 = Number(tr.t);
+      const rate = Math.max(0.75, Math.min(2, Number(tr.rate) || 1));
+      if(!isFinite(t0) || t0 < 0) continue;
+      if(Math.abs(rate - lastRate) < 1e-6) continue;
+      if(speedSegs.length && Math.abs(speedSegs[speedSegs.length-1].t0 - t0) < 1e-6){
+        speedSegs[speedSegs.length-1].rate = rate;
+      } else {
+        speedSegs.push({ t0, rate });
+      }
+      lastRate = rate;
+    }
+    speedSegCum = [0];
+    for(let i = 1; i < speedSegs.length; i++){
+      const prev = speedSegs[i-1];
+      const dt = speedSegs[i].t0 - prev.t0;
+      speedSegCum[i] = speedSegCum[i-1] + prev.rate * Math.max(0, dt);
+    }
+    scrollTimeAtSpawn = makeScroller();
+    scrollTimeAtNow = makeScroller();
+    scrollTimeAtMarker = makeScroller();
+  }
+  // 스캐너를 두 개로 분리: 하나는 노트 스폰 시 hitTime(미래, 오름차순) 조회용,
+  // 하나는 매 프레임 현재 songTime(단조 증가) 조회용. 하나만 쓰면 서로 다른
+  // 시간대를 오가며 스캔 위치가 매번 앞뒤로 튀어 불필요한 탐색이 늘어난다.
+  function makeScroller(){
+    let idx = 0;
+    return function(t){
+      let i = Math.min(idx, speedSegs.length - 1);
+      while(i > 0 && speedSegs[i].t0 > t) i--;
+      while(i < speedSegs.length - 1 && speedSegs[i+1].t0 <= t) i++;
+      idx = i;
+      return speedSegCum[i] + speedSegs[i].rate * (t - speedSegs[i].t0);
+    };
+  }
+  let scrollTimeAtSpawn = makeScroller();
+  let scrollTimeAtNow = makeScroller();
+  let scrollTimeAtMarker = makeScroller();
+  let curScroll = 0, scrollK = 0; // update()에서 매 프레임 갱신, draw()에서도 참조
+  // noteSpeed / cullMargin 은 화면 크기(세로·가로)에 맞춰 resize()에서 재계산
+  let noteSpeed = 0.92;
+  let cullMargin = 80;
+  const LANES = 4;
+  const KEYS = ['d','f','j','k'];
+  const LANE_COLORS = ['#ff3d81','#ffd23f','#3fe0ff','#9a4dff'];
+  const HIT_WINDOWS = {                     // 판정 윈도우 (ms) – 약간 타이트
+    perfect: 36,
+    great: 72,
+    good: 110,
+    miss: 145
+  };
+  // 홀드 점수: 헤드(시작) + 틱(유지) + 테일(종료) + 길이 보너스
+  const HOLD_SCORE = {
+    headScale: 0.5,       // 헤드 = 일반 노트 점수의 50%
+    tickBase: 28,         // 반박마다 틱 기본점
+    completeBase: 120,    // 완주 기본점
+    perBeat: 70,          // 홀드 1박당 길이 보너스
+    tailPerfect: 90,
+    tailGreat: 55,
+    tailOk: 25
+  };
+  function holdHeadMult(judge){
+    if(judge === 'PERFECT') return 1;
+    if(judge === 'GREAT') return 0.88;
+    if(judge === 'GOOD') return 0.7;
+    return 0.45; // BAD
+  }
+  // 타이밍 오프셋(ms): 양수 = 판정을 뒤로(입력이 늦을 때), 음수 = 앞으로
+  let timingOffset = parseInt(localStorage.getItem('neonBeatOffset') || '0', 10) || 0;
+  timingOffset = Math.max(-150, Math.min(150, timingOffset));
+
+  // ==================== DOM ====================
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('score-value');
+  const comboEl = document.getElementById('combo-value');
+  const accEl = document.getElementById('acc-value');
+  const judgeEl = document.getElementById('judge');
+  const timingSideEl = document.getElementById('timing-side');
+  const startScreen = document.getElementById('start-screen');
+  const pauseScreen = document.getElementById('pause-screen');
+  const endScreen = document.getElementById('end-screen');
+  const startBtn = document.getElementById('start-btn');
+  const customBtn = document.getElementById('custom-btn');
+  const importCustomBtn = document.getElementById('import-custom-btn');
+  const startMsg = document.getElementById('start-msg');
+  let useCustomChart = false;
+
+  function setStartMsg(text, color){
+    if(!startMsg) return;
+    startMsg.textContent = text || '';
+    startMsg.style.color = color || '#ffd23f';
+  }
+  const resumeBtn = document.getElementById('resume-btn');
+  const restartBtn = document.getElementById('restart-btn');
+  const pauseBtn = document.getElementById('pause-btn');
+  const muteBtn = document.getElementById('mute-btn');
+  const bestStart = document.getElementById('best-start');
+  const bestEnd = document.getElementById('best-end');
+  const finalScore = document.getElementById('final-score');
+  const finalCombo = document.getElementById('final-combo');
+  const finalAcc = document.getElementById('final-acc');
+  const finalEarly = document.getElementById('final-early');
+  const finalLate = document.getElementById('final-late');
+  const rankEl = document.getElementById('rank');
+  const endTitle = document.getElementById('end-title');
+
+  // ==================== 상태 ====================
+  let W, H, laneW, judgeY;
+  let running = false, paused = false, muted = false;
+  let score = 0, combo = 0, maxCombo = 0;
+  let hits = 0, totalNotes = 0, judged = 0;
+  let earlyCount = 0, lateCount = 0; // 빠름(EARLY) / 느림(LATE) 누적
+  let notes = [];           // {lane, hitTime, y, hit, judged, isHold, holdDur, holdEndTime, holding}
+  let particles = [];
+  const keysDown = {0:false, 1:false, 2:false, 3:false}; // 홀드 판정을 위한 현재 누름 상태
+  const pointerLane = new Map(); // pointerId -> lane (멀티터치 홀드 대응)
+  let lastTime = 0;
+  let songTime = 0;         // 현재 곡 시간(ms) — audioCtx.currentTime 기준으로 매 프레임 계산됨
+  let audioStartTime = 0;   // 게임 시작 시점의 audioCtx.currentTime (songTime의 기준점)
+  let chart = [];           // 미리 생성된 노트 차트 [{t, lane}]
+  let chartIdx = 0;
+  let chartSpeedTriggers = []; // [{t:ms, rate}]
+  let speedTriggerIdx = 0;
+  let travelPx = 400;
+  let prebuiltChart = null; // 랜덤 차트 미리 생성 (시작 렉 방지)
+  const laneQueues = {0:[], 1:[], 2:[], 3:[]}; // 레인별 노트 큐 (tryHit 탐색 최적화용)
+  const laneCursor = {0:0, 1:0, 2:0, 3:0};     // 각 레인에서 다음에 확인할 큐 위치
+  let best = parseInt(localStorage.getItem('neonBeatBest') || '0', 10);
+  bestStart.textContent = best;
+  bestEnd.textContent = best;
+
+  // ==================== Audio (Web Audio 비트) ====================
+  let audioCtx = null;
+  let masterGain = null;
+  let nextBeatTime = 0;
+  let beatCount = 0;
+  // GD식 Song ID: 채보 메타의 songId → IndexedDB blob
+  const SONG_DB_NAME = 'neonBeatSongDB';
+  const SONG_STORE = 'songs';
+  let musicAudio = null;
+  let musicUrl = null;
+  let musicStarted = false;
+  let useMusicTrack = false;
+  let pendingSongMeta = null; // {songId,songName,songDuration}
+
+  function openSongDB(){
+    return new Promise((resolve, reject)=>{
+      const req = indexedDB.open(SONG_DB_NAME, 1);
+      req.onupgradeneeded = ()=>{
+        const db = req.result;
+        if(!db.objectStoreNames.contains(SONG_STORE)){
+          db.createObjectStore(SONG_STORE, { keyPath: 'id' });
+        }
+      };
+      req.onsuccess = ()=> resolve(req.result);
+      req.onerror = ()=> reject(req.error);
+    });
+  }
+  async function idbGetSong(id){
+    if(!id) return null;
+    const db = await openSongDB();
+    const row = await new Promise((resolve, reject)=>{
+      const tx = db.transaction(SONG_STORE, 'readonly');
+      const req = tx.objectStore(SONG_STORE).get(id);
+      req.onsuccess = ()=> resolve(req.result || null);
+      req.onerror = ()=> reject(req.error);
+    });
+    db.close();
+    return row;
+  }
+  function stopMusicTrack(){
+    if(musicAudio){ try{ musicAudio.pause(); }catch(_){ } musicAudio = null; }
+    if(musicUrl){ try{ URL.revokeObjectURL(musicUrl); }catch(_){ } musicUrl = null; }
+    musicStarted = false;
+    useMusicTrack = false;
+  }
+
+  let _snareBuffer = null, _hatBuffer = null;
+  function initAudio(){
+    if(audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = muted ? 0 : 0.35;
+    masterGain.connect(audioCtx.destination);
+    // 노이즈 버퍼(스네어/하이햇)는 한 번만 생성해 재사용한다.
+    // AudioBuffer는 여러 BufferSourceNode에서 동시에 공유해도 안전하며(읽기 전용 재생),
+    // 매 비트마다 새 버퍼를 만들고 랜덤값을 채우는 비용(GC 압박 → 안드로이드 프레임 드랍)을 없앤다.
+    _snareBuffer = makeNoiseBuffer(0.15);
+    _hatBuffer = makeNoiseBuffer(0.2);
+  }
+
+  function makeNoiseBuffer(seconds){
+    const bufferSize = Math.max(1, Math.round(audioCtx.sampleRate * seconds));
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for(let i=0;i<bufferSize;i++) data[i] = Math.random()*2-1;
+    return buffer;
+  }
+
+  function playKick(time){
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.frequency.setValueAtTime(150, time);
+    osc.frequency.exponentialRampToValueAtTime(40, time + 0.12);
+    g.gain.setValueAtTime(0.9, time);
+    g.gain.exponentialRampToValueAtTime(0.001, time + 0.25);
+    osc.connect(g); g.connect(masterGain);
+    osc.start(time); osc.stop(time + 0.26);
+  }
+
+  function playSnare(time){
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = _snareBuffer;
+    const g = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'highpass'; filter.frequency.value = 1000;
+    g.gain.setValueAtTime(0.45, time);
+    g.gain.exponentialRampToValueAtTime(0.001, time + 0.14);
+    noise.connect(filter); filter.connect(g); g.connect(masterGain);
+    noise.start(time); noise.stop(time + 0.15);
+  }
+
+  function playHat(time, open=false){
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = _hatBuffer;
+    const g = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'highpass'; filter.frequency.value = 7000;
+    g.gain.setValueAtTime(open ? 0.22 : 0.18, time);
+    g.gain.exponentialRampToValueAtTime(0.001, time + (open ? 0.18 : 0.05));
+    noise.connect(filter); filter.connect(g); g.connect(masterGain);
+    noise.start(time); noise.stop(time + (open ? 0.2 : 0.06));
+  }
+
+  function playSynth(time, freq, dur=0.12){
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(freq, time);
+    g.gain.setValueAtTime(0.12, time);
+    g.gain.exponentialRampToValueAtTime(0.001, time + dur);
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass'; filter.frequency.value = 1800;
+    osc.connect(filter); filter.connect(g); g.connect(masterGain);
+    osc.start(time); osc.stop(time + dur + 0.02);
+  }
+
+  // 스케줄러: 최소 드럼만 (신스/하이햇은 렉 유발 → 제거)
+  let _schedSkip = 0;
+  function scheduleMusic(){
+    if(!running || paused || !audioCtx || useMusicTrack) return;
+    if(songTime < PREP_MS + 150) return;
+    // 2프레임에 한 번만
+    if((++_schedSkip) & 1) return;
+    const now = audioCtx.currentTime;
+    const lookAhead = 0.08;
+    while(nextBeatTime < now + lookAhead){
+      const beatInBar = beatCount % 4;
+      if(beatInBar === 0 || beatInBar === 2) playKick(nextBeatTime);
+      else playSnare(nextBeatTime);
+      nextBeatTime += BEAT_MS / 1000;
+      beatCount++;
+    }
+  }
+
+  // ==================== 커스텀 차트 로드 (에디터 저장본) ====================
+  // 압축 예: 1.30-4-0@0,1@0.5,2@1:1.5,3@2|176|16
+  function parseChartText(text){
+    text = String(text).trim();
+    if(!text) throw new Error('빈 텍스트');
+    if(text[0] === '{') return JSON.parse(text);
+    const main = text.split('|');
+    const m = main[0].match(/^([\d.]+)-(\d+)-(.*)$/);
+    if(!m) throw new Error('형식: 속도-개수-좌표|BPM|마디');
+    const speed = parseFloat(m[1]);
+    const body = m[3] || '';
+    const notes = body ? body.split(',').map(tok=>{
+      tok = tok.trim();
+      if(!tok) return null;
+      const segs = tok.split(':');
+      const at = segs[0].split('@');
+      if(at.length < 2) return null;
+      const n = { lane: parseInt(at[0],10), t: parseFloat(at[1]) };
+      if(segs[1] != null && segs[1] !== '') n.hold = parseFloat(segs[1]);
+      return n;
+    }).filter(Boolean) : [];
+    const data = {
+      version: 3,
+      speed: isFinite(speed) ? speed : 1,
+      bpm: main[1] != null ? parseInt(main[1],10) : BPM,
+      bars: main[2] != null ? parseInt(main[2],10) : 16,
+      notes
+    };
+    for(let i=3;i<main.length;i++){
+      const p = main[i];
+      if(p.indexOf('s:')===0) data.songId = p.slice(2);
+      else if(p.indexOf('n:')===0){
+        try{ data.songName = decodeURIComponent(p.slice(2)); }catch(_){ data.songName = p.slice(2); }
+      }
+      else if(p.indexOf('d:')===0) data.songDuration = parseFloat(p.slice(2));
+      else if(p.indexOf('v:')===0){
+        data.speedTriggers = p.slice(2).split(',').map(tok=>{
+          const parts = tok.trim().split('@');
+          if(parts.length < 2) return null;
+          return { t: parseFloat(parts[0]), rate: parseFloat(parts[1]) };
+        }).filter(tr => tr && isFinite(tr.t) && isFinite(tr.rate));
+      }
+    }
+    return data;
+  }
+
+  function sanitizeBeatNotes(list){
+    const out = [];
+    const sorted = (list||[]).slice().sort((a,b)=> a.t - b.t || a.lane - b.lane);
+    for(const n of sorted){
+      const lane = n.lane|0;
+      if(lane < 0 || lane > 3) continue;
+      const t = Number(n.t);
+      if(!isFinite(t) || t < 0) continue;
+      let hold = n.hold ? Number(n.hold) : 0;
+      if(!isFinite(hold) || hold < 0) hold = 0;
+      let ok = true;
+      for(const o of out){
+        if(o.lane !== lane) continue;
+        const b1 = t + hold, b2 = o.t + (o.hold||0);
+        if(t < b2 - 1e-9 && o.t < b1 - 1e-9){ ok = false; break; }
+      }
+      if(ok) out.push(hold > 0 ? { t, lane, hold } : { t, lane });
+    }
+    return out;
+  }
+
+  function applyCustomChartData(data){
+    if(!data || !Array.isArray(data.notes) || data.notes.length === 0) return false;
+    if(data.speed != null && isFinite(data.speed)){
+      speedRate = Math.max(0.75, Math.min(2, Number(data.speed)));
+      localStorage.setItem('neonBeatSpeed', String(speedRate));
+      if(typeof refreshSpeedUI === 'function') refreshSpeedUI();
+      if(typeof resize === 'function') resize();
+    }
+    pendingSongMeta = data.songId ? {
+      songId: data.songId,
+      songName: data.songName || data.songId,
+      songDuration: data.songDuration || 0
+    } : null;
+    const clean = sanitizeBeatNotes(data.notes);
+    if(clean.length === 0) return false;
+    const bm = 60000 / (data.bpm || BPM);
+    chart = clean.map(n=>{
+      const o = { t: n.t * bm, lane: n.lane };
+      if(n.hold > 0) o.hold = n.hold * bm;
+      return o;
+    });
+    chart.sort((a,b)=> a.t - b.t || a.lane - b.lane);
+    chartSpeedTriggers = Array.isArray(data.speedTriggers)
+      ? data.speedTriggers.map(tr=>({
+          t: Number(tr.t) * bm,
+          rate: Math.max(0.75, Math.min(2, Number(tr.rate) || 1))
+        })).filter(tr=>isFinite(tr.t)).sort((a,b)=>a.t-b.t)
+      : [];
+    return chart.length > 0;
+  }
+
+  function loadCustomChart(){
+    const raw = localStorage.getItem('neonBeatCustomChart')
+      || sessionStorage.getItem('neonBeatCustomChart');
+    if(!raw) return false;
+    let data;
+    try{ data = parseChartText(raw); }catch(_){
+      try{ data = JSON.parse(raw); }catch(__){ return false; }
+    }
+    return applyCustomChartData(data);
+  }
+
+  // ==================== 차트 생성 (랜덤 / 고밀도) ====================
+  function generateChart(){
+    chart = [];
+    const totalBeats = 160;
+    let t = 0;
+    // 짧은 인트로
+    for(let i=0; i<4; i++){
+      chart.push({t: t, lane: i % 4});
+      t += BEAT_MS;
+    }
+    const patterns = [
+      [0,1,2,3],
+      [0,2,1,3],
+      [0,0,2,2],
+      [1,3,1,3],
+      [0,1,0,1,2,3,2,3],
+      [0,2,3,1],
+      [0,1,2,1,0,3],
+      [0,3,1,2,0,3],
+      [0,0,1,1,2,2,3,3],
+      [0,2,0,2,1,3,1,3],
+      [0,1,2,3,2,1],
+      [0,3,0,3,1,2,1,2],
+      [0,1,0,2,0,3],
+      [0,1,2,0,1,2,3,3],
+      [0,2,1,3,0,2,1,3]
+    ];
+    let pIdx = 0;
+    while(chart.length < totalBeats * 2.4){
+      const pat = patterns[pIdx % patterns.length];
+      for(const lane of pat){
+        chart.push({t: t, lane});
+        if(Math.random() < 0.22 && chart.length > 12){
+          const other = (lane + 1 + Math.floor(Math.random()*3)) % 4;
+          chart.push({t: t, lane: other});
+        }
+        if(Math.random() < 0.08 && chart.length > 20){
+          const other2 = (lane + 2) % 4;
+          if(other2 !== lane) chart.push({t: t, lane: other2});
+        }
+        const roll = Math.random();
+        if(roll < 0.35) t += BEAT_MS * 0.5;
+        else if(roll < 0.48) t += BEAT_MS * 0.25;
+        else t += BEAT_MS;
+      }
+      if(pIdx % 5 === 4) t += BEAT_MS * 0.25;
+      pIdx++;
+    }
+    chart.sort((a,b)=> a.t - b.t || a.lane - b.lane);
+    const seen = new Set();
+    chart = chart.filter(n=>{
+      const key = n.t.toFixed(0)+'-'+n.lane;
+      if(seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    // 홀드 랜덤 배치
+    for(let i=0;i<chart.length;i++){
+      const n = chart[i];
+      if(i < 4) continue;
+      if(Math.random() < 0.22){
+        const holdBeats = Math.random() < 0.45 ? 1 : (Math.random() < 0.7 ? 2 : 3);
+        const holdDur = BEAT_MS * holdBeats;
+        const endT = n.t + holdDur;
+        let conflict = false;
+        for(let j=0;j<chart.length;j++){
+          if(j === i) continue;
+          const o = chart[j];
+          if(o.lane === n.lane && o.t > n.t - 1 && o.t < endT + BEAT_MS*0.2){
+            conflict = true; break;
+          }
+        }
+        if(!conflict) n.hold = holdDur;
+      }
+    }
+  }
+
+  // ==================== 리사이즈 (세로·가로 모두 지원) ====================
+  const rotateLock = document.getElementById('rotate-lock');
+  if(rotateLock) rotateLock.classList.add('hidden');
+
+  let _canvasRect = null;
+  function resize(){
+    // 픽셀 밀도 제한 (드로우 비용)
+    const maxDpr = Math.min(window.innerWidth, window.innerHeight) < 700 ? 1.25 : 1.75;
+    const dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = Math.floor(W * dpr);
+    canvas.height = Math.floor(H * dpr);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const landscape = W > H * 1.05;
+    if(landscape){
+      // 가로: 화면 너비의 대부분을 4레인에 사용, 판정선은 아래쪽 여유(키 영역)
+      const trackW = Math.min(W * 0.88, H * 2.2);
+      laneW = trackW / 4;
+      judgeY = H * 0.70;
+    } else {
+      laneW = Math.min(90, W * 0.2);
+      judgeY = H * JUDGE_Y_RATIO;
+    }
+
+    travelPx = Math.max(100, judgeY - 40);
+    cachedApproachMs = BASE_APPROACH_MS / speedRate;
+    noteSpeed = travelPx / cachedApproachMs;
+    cullMargin = Math.max(60, H * 0.1);
+    _canvasRect = null;
+  }
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', ()=> setTimeout(resize, 80));
+  resize();
+
+  // 첫 클릭에서 AudioContext 미리 깨워 시작 렉 완화
+  function warmAudioOnce(){
+    try{
+      initAudio();
+      if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    }catch(_){}
+    window.removeEventListener('pointerdown', warmAudioOnce);
+    window.removeEventListener('keydown', warmAudioOnce);
+  }
+  window.addEventListener('pointerdown', warmAudioOnce, { once:true });
+  window.addEventListener('keydown', warmAudioOnce, { once:true });
+
+  // 랜덤 차트 미리 생성 (시작 버튼 순간의 긴 GC/연산 회피)
+  function warmChartOnce(){
+    try{
+      generateChart();
+      prebuiltChart = chart.map(n=>({ t: n.t, lane: n.lane, hold: n.hold }));
+      chart = [];
+    }catch(_){}
+  }
+  if(typeof requestIdleCallback === 'function') requestIdleCallback(warmChartOnce, { timeout: 1500 });
+  else setTimeout(warmChartOnce, 100);
+
+  // ==================== 게임 루프 ====================
+  let noteSpeedTarget = noteSpeed;
+  let speedChangeCooldown = 0; // 트리거 직후 스폰 예산 축소
+  // 안드로이드/터치 기기: 즉시 배속 스냅 + dashed 선이 한 프레임 스파이크를 냄
+  const isAndroidLike = /Android/i.test(navigator.userAgent || '')
+    || (window.matchMedia && window.matchMedia('(pointer:coarse)').matches);
+
+  function applyPlaySpeed(rate, opts){
+    speedRate = Math.max(0.75, Math.min(2, rate));
+    cachedApproachMs = BASE_APPROACH_MS / speedRate;
+    noteSpeedTarget = travelPx / Math.max(1, cachedApproachMs);
+    // 모바일은 스냅 대신 짧게 보간 (한 프레임 노트 점프·GC 완화)
+    if(opts && opts.snap && !isAndroidLike){
+      noteSpeed = noteSpeedTarget;
+    } else if(opts && opts.snap && isAndroidLike){
+      // 목표의 60%만 즉시, 나머지는 보간
+      noteSpeed = noteSpeed + (noteSpeedTarget - noteSpeed) * 0.55;
+    }
+    if(opts && opts.ui && typeof refreshSpeedUI === 'function') refreshSpeedUI();
+  }
+
+  function spawnNotes(maxCount){
+    // 한 프레임 스폰 상한 (시작·속도 트리거 시 폭주 방지)
+    let budget = maxCount == null ? (isAndroidLike ? 4 : 8) : maxCount;
+    if(speedChangeCooldown > 0) budget = Math.min(budget, isAndroidLike ? 1 : 2);
+    // 보간 중에도 노트를 놓치지 않도록 더 넓은 쪽 호라이즌 사용
+    const horizonMs = Math.max(cachedApproachMs, travelPx / Math.max(0.05, noteSpeed));
+    const horizon = songTime + horizonMs;
+    while(budget-- > 0 && chartIdx < chart.length && chart[chartIdx].t <= horizon){
+      const n = chart[chartIdx];
+      const isHold = !!n.hold;
+      const holdDur = n.hold || 0;
+      const beats = holdDur / BEAT_MS;
+      let holdKind = null;
+      if(isHold){
+        if(beats < 1.5) holdKind = 'short';
+        else if(beats < 2.5) holdKind = 'mid';
+        else holdKind = 'long';
+      }
+      const obj = {
+        lane: n.lane,
+        hitTime: n.t,
+        hitScroll: scrollTimeAtSpawn(n.t),
+        y: judgeY - (n.t - songTime) * noteSpeed,
+        hit: false,
+        judged: false,
+        isHold: isHold,
+        holdKind: holdKind,
+        holdDur: holdDur,
+        holdEndTime: n.t + holdDur,
+        tailScroll: isHold ? scrollTimeAtSpawn(n.t + holdDur) : 0,
+        tailY: judgeY - ((n.t + holdDur) - songTime) * noteSpeed,
+        holding: false,
+        headHit: false
+      };
+      notes.push(obj);
+      laneQueues[n.lane].push(obj);
+      chartIdx++;
+      totalNotes++;
+    }
+  }
+
+  function update(dt){
+    if(!running || paused) return;
+    // songTime은 audioCtx의 클럭을 기준으로 계산한다 (rAF의 dt 누적을 쓰지 않음).
+    // 이렇게 하면 노트 판정과 실제로 재생 중인 음악(scheduleMusic도 audioCtx.currentTime 기준)이
+    // 항상 같은 시계를 공유하게 되어 장시간 플레이해도 서로 어긋나지 않는다.
+    // 또한 audioCtx가 suspend 상태일 땐 currentTime이 멈추므로, 일시정지 중에도
+    // songTime이 자연히 멈춰서 별도의 pause 보정 로직이 필요 없다.
+    if(useMusicTrack && musicAudio){
+      if(songTime >= PREP_MS && !musicStarted){
+        // PREP 종료 후 곡 시작 (audioCtx 시계로 PREP 진행)
+      }
+      if(musicStarted && !musicAudio.paused){
+        songTime = PREP_MS + musicAudio.currentTime * 1000;
+      } else if(audioCtx){
+        songTime = (audioCtx.currentTime - audioStartTime) * 1000;
+        if(songTime >= PREP_MS && !musicStarted){
+          musicStarted = true;
+          const a = musicAudio;
+          const vol = muted ? 0 : 0.85;
+          // play()를 다음 프레임으로 미뤄 메인 스레드 스파이크 완화
+          requestAnimationFrame(()=>{
+            try{
+              a.currentTime = 0;
+              a.volume = vol;
+              a.play().catch(()=>{});
+            }catch(_){}
+          });
+        }
+      }
+    } else if(audioCtx){
+      songTime = (audioCtx.currentTime - audioStartTime) * 1000;
+    }
+
+    // 속도 트리거: 통과 시 낙하 배속 변경 (위치는 스크롤 적분으로 연속 유지)
+    while(speedTriggerIdx < chartSpeedTriggers.length && songTime >= chartSpeedTriggers[speedTriggerIdx].t){
+      const tr = chartSpeedTriggers[speedTriggerIdx];
+      const newRate = Math.max(0.75, Math.min(2, Number(tr.rate) || 1));
+      // 설정값(speedRate)·localStorage 는 건드리지 않고 플레이 중 noteSpeed만 갱신
+      cachedApproachMs = BASE_APPROACH_MS / newRate;
+      noteSpeedTarget = travelPx / Math.max(1, cachedApproachMs);
+      if(!isAndroidLike){
+        noteSpeed = noteSpeedTarget;
+      } else {
+        // 한 프레임 스파이크 완화: 목표의 일부만 즉시 반영
+        noteSpeed = noteSpeed + (noteSpeedTarget - noteSpeed) * 0.55;
+      }
+      speedChangeCooldown = isAndroidLike ? 12 : 4;
+      speedTriggerIdx++;
+    }
+    if(speedChangeCooldown > 0){
+      speedChangeCooldown--;
+      if(isAndroidLike){
+        noteSpeed = noteSpeed + (noteSpeedTarget - noteSpeed) * 0.35;
+      }
+    } else {
+      noteSpeed = noteSpeedTarget;
+    }
+
+    // 시작 카운트다운 (DOM 1회)
+    if(songTime < PREP_MS + 200){
+      const remain = PREP_MS - songTime;
+      let label = null;
+      if(remain > 2000) label = '3';
+      else if(remain > 1000) label = '2';
+      else if(remain > 0) label = '1';
+      else if(remain > -200) label = 'GO';
+      if(label && update._cdLabel !== label){
+        update._cdLabel = label;
+        showJudge(label, label === 'GO' ? '#ffd23f' : '#3fe0ff');
+      }
+    }
+
+    spawnNotes(isAndroidLike ? 4 : 8);
+
+    // ===== 단일 패스: 위치 + 홀드 + 미스 + 인플레이스 정리 =====
+    const jt = judgeTime();
+    // 노트별로 노트속도를 곱하는 대신, 시간에 대해 적분된 스크롤값의 차이를 쓴다.
+    // (트리거 순간에도 위치가 끊기지 않고, 노트 사이 간격이 항상 정확히 유지된다)
+    curScroll = scrollTimeAtNow(songTime);
+    scrollK = travelPx / BASE_APPROACH_MS;
+    const K = scrollK;
+    let write = 0;
+    let hudDirty = false;
+    for(let i = 0; i < notes.length; i++){
+      const n = notes[i];
+
+      if(n.judged && n.hit){
+        // 성공 노트 즉시 폐기
+        continue;
+      }
+
+      // 위치
+      if(!(n.judged && n.hit)){
+        n.y = judgeY - (n.hitScroll - curScroll) * K;
+        if(n.isHold) n.tailY = judgeY - (n.tailScroll - curScroll) * K;
+      }
+
+      // 홀드 유지
+      if(n.isHold && !n.judged && n.holding){
+        if(!keysDown[n.lane]){
+          n.judged = true; n.hit = false; n.holding = false;
+          combo = 0; judged++;
+          showJudge('BREAK', '#ff3d81');
+          hudDirty = true;
+        } else {
+          if(n.nextTick == null) n.nextTick = n.hitTime + BEAT_MS * 0.5;
+          const mult = n.headMult || 1;
+          while(n.nextTick < n.holdEndTime && songTime >= n.nextTick){
+            score += Math.round(HOLD_SCORE.tickBase * mult);
+            n.nextTick += BEAT_MS * 0.5;
+            hudDirty = true;
+          }
+          if(songTime >= n.holdEndTime){
+            const absTail = Math.abs(judgeTime() - n.holdEndTime);
+            n.judged = true; n.hit = true; n.holding = false;
+            judged++; hits++; combo++;
+            if(combo > maxCombo) maxCombo = combo;
+            const beats = Math.max(0.5, n.holdDur / BEAT_MS);
+            let tailBonus = HOLD_SCORE.tailPerfect;
+            let tailLabel = 'HOLD PERFECT';
+            let tailColor = '#3fe0ff';
+            if(absTail > HIT_WINDOWS.great){
+              tailBonus = HOLD_SCORE.tailOk; tailLabel = 'HOLD OK'; tailColor = '#ffd23f';
+            } else if(absTail > HIT_WINDOWS.perfect){
+              tailBonus = HOLD_SCORE.tailGreat; tailLabel = 'HOLD GREAT'; tailColor = '#9a4dff';
+            }
+            score += HOLD_SCORE.completeBase + Math.round(beats * HOLD_SCORE.perBeat * mult) + tailBonus + Math.min(combo,50)*2;
+            showJudge(tailLabel, tailColor);
+            spawnHitParticles(n.lane, tailColor);
+            hudDirty = true;
+            continue; // 성공 → 배열에서 제거
+          }
+        }
+      }
+
+      // Miss
+      if(!n.judged && !n.holding && jt - n.hitTime > HIT_WINDOWS.miss){
+        n.judged = true; n.hit = false;
+        combo = 0; judged++;
+        showJudge('MISS', '#ff3d81');
+        hudDirty = true;
+      }
+
+      // 유지 여부 (실패 노트는 화면 밖까지)
+      if(n.judged && n.hit) continue;
+      if(n.judged && !n.hit){
+        if(n.isHold){
+          const topY = Math.min(n.y, n.tailY != null ? n.tailY : n.y);
+          if(topY > H + cullMargin) continue;
+        } else if(n.y > H + cullMargin) continue;
+      }
+      notes[write++] = n;
+    }
+    notes.length = write;
+
+    // 파티클 인플레이스
+    let pw = 0;
+    for(let i = 0; i < particles.length; i++){
+      const p = particles[i];
+      p.life -= dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 0.0004 * dt;
+      if(p.life > 0) particles[pw++] = p;
+    }
+    particles.length = pw;
+
+    if(hudDirty){
+      scoreEl.textContent = score;
+      updateHUD();
+    }
+
+    scheduleMusic();
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+
+    const centerX = W/2;
+    const totalLaneW = laneW * LANES;
+    const startX = centerX - totalLaneW/2;
+    const landscape = W > H * 1.05;
+    const keyH = landscape ? Math.max(28, Math.min(40, H - judgeY - 8)) : 36;
+    const keyY = Math.min(judgeY + 10, H - keyH - 4);
+
+    for(let i=0;i<LANES;i++){
+      const x = startX + i * laneW;
+      ctx.fillStyle = 'rgba(255,255,255,0.03)';
+      ctx.fillRect(x, 0, laneW, H);
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.beginPath();
+      ctx.moveTo(x, 0); ctx.lineTo(x, H);
+      ctx.stroke();
+
+      const pressed = keysDown[i];
+      ctx.fillStyle = pressed ? LANE_COLORS[i] + '55' : LANE_COLORS[i] + '33';
+      ctx.fillRect(x + 4, keyY, laneW - 8, keyH);
+      ctx.fillStyle = LANE_COLORS[i];
+      ctx.font = (landscape ? 'bold 13px ' : 'bold 16px ') + 'Orbitron';
+      ctx.textAlign = 'center';
+      ctx.fillText(KEYS[i].toUpperCase(), x + laneW/2, keyY + keyH * 0.65);
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.beginPath();
+    ctx.moveTo(startX + totalLaneW, 0);
+    ctx.lineTo(startX + totalLaneW, H);
+    ctx.stroke();
+
+    // 판정선 (shadow 제거 — GPU 부하)
+    ctx.strokeStyle = 'rgba(63,224,255,0.85)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(startX, judgeY);
+    ctx.lineTo(startX + totalLaneW, judgeY);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+
+    // 속도 트리거 마커 (다음 1개만 · dash/measureText 회피 — 안드로이드 GPU 부하)
+    if(speedTriggerIdx < chartSpeedTriggers.length){
+      const tr = chartSpeedTriggers[speedTriggerIdx];
+      // 노트와 같은 스크롤 적분값을 사용해 트리거 순간에도 노트 줄과 어긋나지 않게 한다.
+      const y = judgeY - (scrollTimeAtMarker(tr.t) - curScroll) * scrollK;
+      if(y >= -30 && y <= H + 30){
+        ctx.strokeStyle = 'rgba(255,210,63,0.7)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(startX, y);
+        ctx.lineTo(startX + totalLaneW, y);
+        ctx.stroke();
+        ctx.lineWidth = 1;
+        // 고정 폭 뱃지 (measureText 비용 제거)
+        const bx = startX + totalLaneW + 4;
+        ctx.fillStyle = 'rgba(255,210,63,0.9)';
+        ctx.fillRect(bx, y - 9, 44, 16);
+        ctx.fillStyle = '#1a1200';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(tr.rate.toFixed(2) + 'x', bx + 4, y + 3);
+      }
+    }
+
+    const noteH = landscape ? 14 : 18;
+    for(const n of notes){
+      if(n.judged && n.hit) continue;
+      if(n.y > H + cullMargin && (!n.isHold || (n.tailY || 0) > H + cullMargin)) continue;
+
+      const x = startX + n.lane * laneW + 6;
+      const w = laneW - 12;
+      const color = LANE_COLORS[n.lane];
+      const r = Math.min(8, w/2);
+
+      if(n.isHold && !(n.judged && n.hit)){
+        const headY = n.holding ? judgeY : n.y;
+        const tailY = n.tailY != null ? n.tailY : headY;
+        let drawTop = Math.min(headY, tailY);
+        let drawBot = Math.max(headY, tailY);
+        if(n.holding) drawBot = judgeY;
+        const bodyPad = 3;
+        const bodyW = w - bodyPad * 2;
+        if(drawBot - drawTop > 2){
+          ctx.fillStyle = color + (n.holding ? 'aa' : '66');
+          roundRect(ctx, x + bodyPad, drawTop, bodyW, drawBot - drawTop, 4);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(255,255,255,' + (n.holding ? '0.4' : '0.2') + ')';
+          ctx.fillRect(x + w/2 - 1.5, drawTop, 3, drawBot - drawTop);
+        }
+        if(tailY > -20 && tailY < H + 20){
+          ctx.fillStyle = color;
+          roundRect(ctx, x + 2, tailY - 6, w - 4, 12, 6);
+          ctx.fill();
+        }
+      }
+
+      if(!n.judged || (n.isHold && !n.hit)){
+        const hy = (n.isHold && n.holding) ? judgeY : n.y;
+        if(hy > -30 && hy < H + 30){
+          ctx.fillStyle = color;
+          roundRect(ctx, x, hy - noteH/2, w, noteH, r);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(255,255,255,0.35)';
+          ctx.fillRect(x + 3, hy - noteH/2 + 2, w - 6, 4);
+        }
+      }
+    }
+
+    // 파티클 (최대 개수 제한)
+    const maxP = 40;
+    const start = particles.length > maxP ? particles.length - maxP : 0;
+    for(let i = start; i < particles.length; i++){
+      const p = particles[i];
+      ctx.globalAlpha = Math.max(0, p.life / 400);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.r, p.y - p.r, p.r * 2, p.r * 2);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function roundRect(ctx, x, y, w, h, r){
+    if(h < 0){ y += h; h = -h; }
+    r = Math.min(r, w/2, Math.max(h/2, 0.1));
+    ctx.beginPath();
+    ctx.moveTo(x+r, y);
+    ctx.arcTo(x+w, y, x+w, y+h, r);
+    ctx.arcTo(x+w, y+h, x, y+h, r);
+    ctx.arcTo(x, y+h, x, y, r);
+    ctx.arcTo(x, y, x+w, y, r);
+    ctx.closePath();
+  }
+
+  function loop(ts){
+    if(!lastTime) lastTime = ts;
+    const dt = Math.min(ts - lastTime, 50);
+    lastTime = ts;
+    if(running){
+      update(dt);
+      draw();
+    }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  // ==================== 입력 ====================
+  // 보정된 곡 시간 (오프셋 적용) — 판정에만 사용, 노트 위치는 songTime 그대로
+  function judgeTime(){
+    return songTime - timingOffset;
+  }
+
+  // signedDelta = 입력−이상 (>0 LATE, <0 EARLY)
+  function evaluateTiming(signedDelta){
+    const abs = Math.abs(signedDelta);
+    let judge, color, base;
+    if(abs <= HIT_WINDOWS.perfect){
+      judge = 'PERFECT'; color = '#3fe0ff';
+      // Perfect 구간 안에서도 중심에 가까울수록 점수↑ (250~300)
+      const t = abs / HIT_WINDOWS.perfect;
+      base = Math.round(300 - t * 50);
+    } else if(abs <= HIT_WINDOWS.great){
+      judge = 'GREAT'; color = '#9a4dff'; base = 200;
+    } else if(abs <= HIT_WINDOWS.good){
+      judge = 'GOOD'; color = '#ffd23f'; base = 100;
+    } else if(abs <= HIT_WINDOWS.miss){
+      judge = 'BAD'; color = '#ff3d81'; base = 50;
+    } else {
+      return null;
+    }
+    let side = '';
+    if(signedDelta < -2) side = 'EARLY';
+    else if(signedDelta > 2) side = 'LATE';
+    return {judge, color, points: base, side, abs};
+  }
+
+  function tryHit(lane){
+    if(!running || paused) return;
+    const jt = judgeTime();
+    const q = laneQueues[lane];
+    let cursor = laneCursor[lane];
+    while(cursor < q.length && q[cursor].judged && !q[cursor].holding) cursor++;
+    laneCursor[lane] = cursor;
+
+    let bestNote = null;
+    let bestSigned = 0;
+    for(let i = cursor; i < q.length; i++){
+      const n = q[i];
+      if(n.judged || n.holding) continue;
+      if(n.hitTime - jt > HIT_WINDOWS.miss) break;
+      const signed = jt - n.hitTime;
+      if(Math.abs(signed) <= HIT_WINDOWS.miss){
+        bestSigned = signed;
+        bestNote = n;
+        break;
+      }
+    }
+    if(!bestNote){
+      judged++;
+      combo = 0;
+      score = Math.max(0, score - 50);
+      showJudge('MISS', '#ff3d81');
+      updateHUD();
+      return;
+    }
+
+    const ev = evaluateTiming(bestSigned);
+    if(!ev){
+      judged++;
+      combo = 0;
+      score = Math.max(0, score - 50);
+      showJudge('MISS', '#ff3d81');
+      updateHUD();
+      return;
+    }
+
+    if(bestNote.isHold){
+      // 헤드 판정: 일반 노트의 일부만 즉시 반영, 품질 배율은 틱·완주에 전달
+      bestNote.headHit = true;
+      bestNote.holding = true;
+      bestNote.headMult = holdHeadMult(ev.judge);
+      bestNote.tickScore = 0;
+      bestNote.nextTick = bestNote.hitTime + BEAT_MS * 0.5;
+      combo++;
+      if(combo > maxCombo) maxCombo = combo;
+      const comboBonus = Math.min(combo, 50) * 2;
+      const headScore = Math.round(ev.points * HOLD_SCORE.headScale) + comboBonus;
+      score += headScore;
+      recordTimingSide(ev.side);
+      showJudge(ev.judge + ' HOLD', ev.color);
+      spawnHitParticles(bestNote.lane, ev.color);
+      updateHUD();
+      return;
+    }
+
+    bestNote.judged = true;
+    bestNote.hit = true;
+    judged++;
+    hits++;
+
+    combo++;
+    if(combo > maxCombo) maxCombo = combo;
+    const comboBonus = Math.min(combo, 50) * 2;
+    score += ev.points + comboBonus;
+
+    recordTimingSide(ev.side);
+    showJudge(ev.judge, ev.color);
+    spawnHitParticles(bestNote.lane, ev.color);
+    updateHUD();
+  }
+
+  // 플레이 중에는 표시하지 않고, 결과 화면에서만 집계값을 보여 줌
+  function recordTimingSide(side){
+    if(side === 'EARLY') earlyCount++;
+    else if(side === 'LATE') lateCount++;
+  }
+
+  function showJudge(text, color){
+    // 블러 반경을 20px→9px로 축소: 안드로이드에서 text-shadow 블러는
+    // 히트마다 GPU 합성 비용이 크게 드는데, 반경이 줄면 그 비용도 크게 줄어든다.
+    // (히트가 몰리는 첫 노트/트리거 직후 구간에서 특히 체감 차이가 크다)
+    judgeEl.textContent = text;
+    judgeEl.style.color = color;
+    judgeEl.style.textShadow = `0 0 9px ${color}`;
+    judgeEl.style.opacity = '1';
+    clearTimeout(judgeEl._t);
+    judgeEl._t = setTimeout(()=> judgeEl.style.opacity = '0', 380);
+  }
+
+  function spawnHitParticles(lane, color){
+    // 파티클 최소화 (렉 방지)
+    if(particles.length > 24) return;
+    const centerX = W/2;
+    const totalLaneW = laneW * LANES;
+    const startX = centerX - totalLaneW/2;
+    const cx = startX + lane * laneW + laneW/2;
+    for(let i=0;i<3;i++){
+      particles.push({
+        x: cx, y: judgeY,
+        vx: (Math.random()-0.5)*0.35,
+        vy: -Math.random()*0.3 - 0.08,
+        r: Math.random()*2.5 + 1,
+        life: 200 + Math.random()*120,
+        color
+      });
+    }
+  }
+
+  function updateHUD(){
+    scoreEl.textContent = score;
+    comboEl.textContent = combo;
+    comboEl.classList.add('pop');
+    setTimeout(()=> comboEl.classList.remove('pop'), 100);
+    const acc = judged === 0 ? 100 : Math.round(hits / judged * 100);
+    accEl.textContent = acc + '%';
+  }
+
+  // 키보드
+  const keyMap = {d:0, f:1, j:2, k:3};
+  window.addEventListener('keydown', e=>{
+    const key = e.key.toLowerCase();
+    if(key in keyMap){
+      e.preventDefault();
+      const lane = keyMap[key];
+      if(!keysDown[lane]){
+        keysDown[lane] = true;
+        tryHit(lane);
+      }
+    } else if(key === 'p'){
+      togglePause();
+    }
+  });
+  window.addEventListener('keyup', e=>{
+    const key = e.key.toLowerCase();
+    if(key in keyMap) keysDown[keyMap[key]] = false;
+  });
+  window.addEventListener('blur', ()=>{
+    // 창 포커스를 잃으면 홀드가 걸린 채로 남지 않도록 전부 해제
+    for(const l in keysDown) keysDown[l] = false;
+  });
+
+  // 터치 / 클릭 (홀드 노트를 위해 포인터별 레인을 추적)
+  function laneFromClientX(clientX){
+    // getBoundingClientRect()는 강제 리플로우를 유발한다.
+    // 매 pointerdown마다 다시 읽는 대신 resize 시점에만 캐시해 둔다
+    // (특히 첫 터치 순간의 스파이크를 없애기 위함).
+    if(!_canvasRect) _canvasRect = canvas.getBoundingClientRect();
+    const rect = _canvasRect;
+    const x = clientX - rect.left;
+    const centerX = W/2;
+    const totalLaneW = laneW * LANES;
+    const startX = centerX - totalLaneW/2;
+    if(x < startX || x > startX + totalLaneW) return -1;
+    const lane = Math.floor((x - startX) / laneW);
+    return Math.max(0, Math.min(3, lane));
+  }
+
+  canvas.addEventListener('pointerdown', e=>{
+    if(!running || paused) return;
+    const lane = laneFromClientX(e.clientX);
+    if(lane === -1) return;
+    pointerLane.set(e.pointerId, lane);
+    if(!keysDown[lane]){
+      keysDown[lane] = true;
+      tryHit(lane);
+    }
+  });
+
+  function releasePointer(e){
+    const lane = pointerLane.get(e.pointerId);
+    if(lane === undefined) return;
+    pointerLane.delete(e.pointerId);
+    // 같은 레인을 누르고 있는 다른 포인터(멀티터치)가 없을 때만 해제
+    let stillDown = false;
+    for(const l of pointerLane.values()){
+      if(l === lane){ stillDown = true; break; }
+    }
+    if(!stillDown) keysDown[lane] = false;
+  }
+  canvas.addEventListener('pointerup', releasePointer);
+  canvas.addEventListener('pointercancel', releasePointer);
+  canvas.addEventListener('pointerleave', releasePointer);
+
+  // ==================== 게임 흐름 ====================
+  async function startGame(){
+    setStartMsg('');
+    initAudio();
+    stopMusicTrack();
+    pendingSongMeta = null;
+
+    score = 0; combo = 0; maxCombo = 0;
+    hits = 0; totalNotes = 0; judged = 0;
+    earlyCount = 0; lateCount = 0;
+    notes = []; particles = [];
+    chartIdx = 0;
+    for(const l of [0,1,2,3]){ laneQueues[l] = []; laneCursor[l] = 0; }
+    for(const l in keysDown) keysDown[l] = false;
+    pointerLane.clear();
+    beatCount = 0;
+    songTime = 0;
+    // 차트·음악 로드를 먼저 끝낸 뒤 시계를 시작 (시작 렉·시간 점프 방지)
+    if(useCustomChart){
+      if(!loadCustomChart()){
+        setStartMsg('저장된 커스텀 차트가 없습니다. 에디터에서 저장하거나 JSON을 붙여넣으세요.', '#ff3d81');
+        useCustomChart = false;
+        return;
+      }
+      if(pendingSongMeta && pendingSongMeta.songId){
+        try{
+          const row = await idbGetSong(pendingSongMeta.songId);
+          if(row && row.blob){
+            musicUrl = URL.createObjectURL(row.blob);
+            musicAudio = new Audio(musicUrl);
+            musicAudio.preload = 'auto';
+            musicAudio.volume = muted ? 0 : 0.85;
+            useMusicTrack = true;
+            musicStarted = false;
+            try{ musicAudio.load(); }catch(_){}
+            // play()/pause 워밍은 메인 스레드를 막아 시작 렉 유발 → 제거
+          } else {
+            setStartMsg('Song ID 오디오 없음: '+pendingSongMeta.songId+' (에디터에서 같은 브라우저로 다시 「음악」 불러오기)', '#ffd23f');
+          }
+        }catch(err){
+          setStartMsg('음악 로드 실패', '#ff3d81');
+        }
+      }
+    } else {
+      if(prebuiltChart && prebuiltChart.length){
+        chart = prebuiltChart.map(n=>({ t: n.t, lane: n.lane, hold: n.hold }));
+      } else {
+        generateChart();
+      }
+      prebuiltChart = null;
+      chartSpeedTriggers = [];
+      const regen = ()=>{
+        // 플레이 중 active chart를 덮어쓰지 않도록 백업
+        const active = chart;
+        try{
+          generateChart();
+          prebuiltChart = chart.map(n=>({ t: n.t, lane: n.lane, hold: n.hold }));
+        }catch(_){}
+        chart = active;
+      };
+      if(typeof requestIdleCallback === 'function') requestIdleCallback(regen, { timeout: 2500 });
+      else setTimeout(regen, 50);
+    }
+    for(const n of chart) n.t += PREP_MS;
+    for(const tr of chartSpeedTriggers) tr.t += PREP_MS;
+    speedTriggerIdx = 0;
+
+    resize();
+    applyPlaySpeed(speedRate, { ui:true, snap:true });
+    buildSpeedSegments();
+    speedChangeCooldown = 0;
+    songTime = 0;
+    // 프리 스폰 없음 — 첫 프레임부터 소량씩 (시작 렉 핵심)
+    if(audioCtx){
+      if(audioCtx.state === 'suspended'){
+        try{ await audioCtx.resume(); }catch(_){}
+      }
+      await new Promise(r=> requestAnimationFrame(r));
+      audioStartTime = audioCtx.currentTime;
+      nextBeatTime = audioStartTime + 0.3;
+    } else {
+      await new Promise(r=> requestAnimationFrame(r));
+      audioStartTime = 0;
+      nextBeatTime = 0.3;
+    }
+    songTime = 0;
+    lastTime = 0;
+
+    running = true; paused = false;
+    startScreen.classList.add('hidden');
+    pauseScreen.classList.add('hidden');
+    endScreen.classList.add('hidden');
+    if(typeof helpScreen !== 'undefined' && helpScreen) helpScreen.classList.add('hidden');
+    pauseBtn.classList.remove('hidden');
+    muteBtn.classList.remove('hidden');
+    updateHUD();
+    if(timingSideEl) timingSideEl.style.opacity = '0';
+    if(!(pendingSongMeta && !useMusicTrack)) setStartMsg('');
+  }
+
+  function togglePause(){
+    if(!running) return;
+    paused = !paused;
+    pauseScreen.classList.toggle('hidden', !paused);
+    if(paused){
+      if(audioCtx) audioCtx.suspend();
+      if(musicAudio) try{ musicAudio.pause(); }catch(_){}
+    } else {
+      if(audioCtx) audioCtx.resume();
+      if(musicAudio && musicStarted) try{ musicAudio.play(); }catch(_){}
+    }
+  }
+
+  function endGame(cleared){
+    running = false;
+    paused = false;
+    pauseBtn.classList.add('hidden');
+    if(timingSideEl) timingSideEl.style.opacity = '0';
+    if(audioCtx) audioCtx.suspend();
+    stopMusicTrack();
+
+    if(score > best){
+      best = score;
+      localStorage.setItem('neonBeatBest', best);
+    }
+    bestStart.textContent = best;
+    bestEnd.textContent = best;
+    finalScore.textContent = score;
+    finalCombo.textContent = maxCombo;
+    const acc = judged === 0 ? 100 : Math.round(hits / judged * 1000) / 10; // 소수점 1자리
+    finalAcc.textContent = acc + '%';
+    if(finalEarly) finalEarly.textContent = earlyCount;
+    if(finalLate) finalLate.textContent = lateCount;
+
+    // 세밀 등급: 정확도 + 최고 콤보 보너스
+    let rank = 'D';
+    if(acc >= 99.5 && maxCombo >= 50) rank = 'SSS';
+    else if(acc >= 99) rank = 'SS';
+    else if(acc >= 97) rank = 'S+';
+    else if(acc >= 95) rank = 'S';
+    else if(acc >= 92) rank = 'A+';
+    else if(acc >= 88) rank = 'A';
+    else if(acc >= 84) rank = 'B+';
+    else if(acc >= 78) rank = 'B';
+    else if(acc >= 72) rank = 'C+';
+    else if(acc >= 65) rank = 'C';
+    else if(acc >= 50) rank = 'D';
+    else rank = 'F';
+
+    rankEl.textContent = rank;
+    endTitle.textContent = '세션 클리어!';
+    endScreen.classList.remove('hidden');
+  }
+
+  // 곡이 끝나면 자동 종료
+  setInterval(()=>{
+    if(running && !paused && chartIdx >= chart.length && notes.every(n=>n.judged)){
+      endGame(true);
+    }
+  }, 500);
+
+  const helpBtn = document.getElementById('help-btn');
+  const helpScreen = document.getElementById('help-screen');
+  const helpCloseBtn = document.getElementById('help-close-btn');
+  if(helpBtn && helpScreen){
+    helpBtn.addEventListener('click', ()=> helpScreen.classList.remove('hidden'));
+  }
+  if(helpCloseBtn && helpScreen){
+    helpCloseBtn.addEventListener('click', ()=> helpScreen.classList.add('hidden'));
+  }
+
+  startBtn.addEventListener('click', ()=>{ useCustomChart = false; startGame(); });
+  if(customBtn) customBtn.addEventListener('click', ()=>{
+    const has = localStorage.getItem('neonBeatCustomChart')
+      || sessionStorage.getItem('neonBeatCustomChart');
+    if(!has){
+      setStartMsg('커스텀 차트 없음 → 에디터에서 「저장」 후 다시 누르거나, 아래 JSON 붙여넣기를 사용하세요.', '#ffd23f');
+      return;
+    }
+    useCustomChart = true;
+    startGame();
+  });
+  if(importCustomBtn) importCustomBtn.addEventListener('click', ()=>{
+    const text = prompt('차트 코드 붙여넣기\n예: 1.30-2-0@0,1@1:2|176|16');
+    if(text == null || !String(text).trim()) return;
+    try{
+      const data = parseChartText(String(text).trim().split('\n')[0]);
+      if(!applyCustomChartData(data)){
+        setStartMsg('형식이 올바르지 않거나 노트가 없습니다.', '#ff3d81');
+        return;
+      }
+      localStorage.setItem('neonBeatCustomChart', JSON.stringify(data));
+      sessionStorage.setItem('neonBeatCustomChart', JSON.stringify(data));
+      setStartMsg('가져오기 완료! 「커스텀 차트 플레이」 (노트 '+data.notes.length+'개)', '#3fe0ff');
+    }catch(err){
+      setStartMsg('파싱 실패: '+(err && err.message ? err.message : err), '#ff3d81');
+    }
+  });
+
+  // URL 해시 #c=... (에디터 「게임으로」) — file:// localStorage 분리 회피
+  function ingestChartFromHash(){
+    try{
+      const hash = location.hash || '';
+      if(hash.indexOf('#c=') !== 0) return false;
+      let payload = decodeURIComponent(hash.slice(3));
+      let text = payload;
+      try{ text = atob(payload); }catch(_){ text = payload; }
+      const data = parseChartText(String(text).split('\n')[0]);
+      if(!applyCustomChartData(data)) return false;
+      const json = JSON.stringify(data);
+      localStorage.setItem('neonBeatCustomChart', json);
+      sessionStorage.setItem('neonBeatCustomChart', json);
+      history.replaceState(null, '', location.pathname + location.search);
+      setStartMsg('에디터에서 차트 수신 → 「커스텀 차트 플레이」 (노트 '+data.notes.length+'개)', '#3fe0ff');
+      return true;
+    }catch(err){
+      setStartMsg('해시 차트 로드 실패: '+(err && err.message ? err.message : err), '#ff3d81');
+      return false;
+    }
+  }
+  try{
+    if(!ingestChartFromHash()){
+      if(sessionStorage.getItem('neonBeatCustomChart')){
+        setStartMsg('에디터 차트가 준비됨 → 「커스텀 차트 플레이」', '#3fe0ff');
+      } else if(localStorage.getItem('neonBeatCustomChart')){
+        setStartMsg('저장된 커스텀 차트 있음 → 「커스텀 차트 플레이」', '#9a4dff');
+      }
+    }
+  }catch(_){}
+  resumeBtn.addEventListener('click', togglePause);
+  restartBtn.addEventListener('click', startGame);
+  pauseBtn.addEventListener('click', togglePause);
+  muteBtn.addEventListener('click', ()=>{
+    muted = !muted;
+    muteBtn.textContent = muted ? '🔇 음소거' : '🔊 소리';
+    if(masterGain) masterGain.gain.value = muted ? 0 : 0.35;
+    if(musicAudio) musicAudio.volume = muted ? 0 : 0.85;
+  });
+
+  // 타이밍 오프셋 UI (시작 + 결과/재시도 화면)
+  function refreshOffsetUI(){
+    const sign = timingOffset > 0 ? '+' : '';
+    const text = sign + timingOffset + ' ms';
+    ['offset-value','offset-value-end'].forEach(id=>{
+      const el = document.getElementById(id);
+      if(el) el.textContent = text;
+    });
+  }
+  function changeOffset(delta){
+    timingOffset = Math.max(-150, Math.min(150, timingOffset + delta));
+    localStorage.setItem('neonBeatOffset', String(timingOffset));
+    refreshOffsetUI();
+  }
+  ['offset-minus','offset-minus-end'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('click', ()=> changeOffset(-5));
+  });
+  ['offset-plus','offset-plus-end'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('click', ()=> changeOffset(5));
+  });
+  refreshOffsetUI();
+
+  // 노트 속도 UI
+  function refreshSpeedUI(){
+    const text = speedRate.toFixed(2) + '×';
+    ['speed-value','speed-value-end'].forEach(id=>{
+      const el = document.getElementById(id);
+      if(el) el.textContent = text;
+    });
+  }
+  function changeSpeed(delta){
+    const next = Math.max(0.75, Math.min(2, Math.round((speedRate + delta) * 20) / 20));
+    localStorage.setItem('neonBeatSpeed', String(next));
+    applyPlaySpeed(next, { ui:true });
+  }
+  ['speed-minus','speed-minus-end'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('click', ()=> changeSpeed(-0.05));
+  });
+  ['speed-plus','speed-plus-end'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('click', ()=> changeSpeed(0.05));
+  });
+  refreshSpeedUI();
+
+})();
+</script>
+</body>
+</html>
