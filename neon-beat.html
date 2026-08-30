@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#080814">
 <title>네온 비트: 리듬 세션</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -211,10 +212,15 @@
     pointer-events:none;
   }
 
-  #pause-btn{
+  #top-controls{
     position:absolute;
-    top:16px; right:20px;
+    top:16px;
+    right:max(20px, calc(env(safe-area-inset-right) + 12px));
     z-index:6;
+    display:flex;
+    gap:8px;
+  }
+  #pause-btn, #mute-btn{
     background:rgba(255,255,255,0.08);
     border:1px solid rgba(255,255,255,0.2);
     color:var(--text);
@@ -225,23 +231,7 @@
     border-radius:999px;
     cursor:pointer;
   }
-  #pause-btn.hidden{ display:none; }
-
-  #mute-btn{
-    position:absolute;
-    top:16px; right:100px;
-    z-index:6;
-    background:rgba(255,255,255,0.08);
-    border:1px solid rgba(255,255,255,0.2);
-    color:var(--text);
-    font-family:'Orbitron', sans-serif;
-    font-size:11px;
-    letter-spacing:1px;
-    padding:8px 12px;
-    border-radius:999px;
-    cursor:pointer;
-  }
-  #mute-btn.hidden{ display:none; }
+  #pause-btn.hidden, #mute-btn.hidden{ display:none; }
 
   #rotate-lock{
     position:fixed;
@@ -315,7 +305,7 @@
 
 <div id="wrap">
   
-  <canvas id="game"></canvas>
+  <canvas id="game" role="img" aria-label="네온 비트 리듬 게임 플레이 화면"></canvas>
 
   <div id="hud">
     <div class="hud-block">
@@ -336,8 +326,10 @@
   <div id="timing-side"></div>
   <div id="touch-hint">레인을 탭하거나 D F J K 키를 눌러 노트를 맞추세요 · P 로 일시정지</div>
 
-  <button id="mute-btn" class="hidden">🔊 소리</button>
-  <button id="pause-btn" class="hidden">일시정지</button>
+  <div id="top-controls">
+    <button id="mute-btn" class="hidden">🔊 소리</button>
+    <button id="pause-btn" class="hidden">일시정지</button>
+  </div>
 
   <div class="overlay" id="start-screen">
     <div class="title">네온 비트</div>
@@ -390,7 +382,7 @@
       <b style="color:var(--lane3)">노트 속도</b><br>
       · 0.75× ~ 2.00× · 높을수록 빨리 떨어짐<br>
       · 설정은 브라우저에 저장됨<br><br>
-      <b style="color:var(--lane0)">플레이 모드</b><br>
+      <b style="color:var(--lane4)">플레이 모드</b><br>
       · <b>랜덤</b> — 매번 다른 패턴 + 합성 비트<br>
       · <b>커스텀</b> — 에디터에서 만든 채보<br>
       · 커스텀에 Song ID가 있으면 해당 음악 재생<br>
@@ -416,7 +408,7 @@
     <div id="rank">-</div>
     <div class="subtitle" style="margin-bottom:6px;">최종 점수 <span style="color:var(--lane2); font-weight:700;" id="final-score">0</span></div>
     <div class="score-line">최고 콤보 <span id="final-combo">0</span> · 정확도 <span id="final-acc">0%</span></div>
-    <div class="score-line">빠름 <span id="final-early">0</span> · 느림 <span id="final-late">0</span></div>
+    <div class="score-line">전체 노트 <span id="final-total">0</span> · 빠름 <span id="final-early">0</span> · 느림 <span id="final-late">0</span></div>
     <div class="score-line">최고 점수 <span id="best-end">0</span></div>
     <div class="offset-row" style="margin-top:14px;">
       <span class="offset-label">판정 오프셋</span>
@@ -437,6 +429,28 @@
 
 <script>
 (function(){
+  // ==================== 안전한 로컬 저장소 접근 ====================
+  // 일부 브라우저의 프라이빗 모드·차단된 저장소 설정·특정 file:// 환경에서는
+  // localStorage 호출 자체가 예외를 던질 수 있다. 이 스크립트는 최상단에서
+  // 곧바로 localStorage를 읽으므로, 그 예외를 잡지 않으면 이후 코드가 전혀
+  // 실행되지 않아 게임이 통째로 먹통이 된다. 모든 접근을 이 헬퍼로 감싸서
+  // 그런 환경에서도 "설정 저장만 안 될 뿐" 게임 자체는 항상 뜨도록 한다.
+  // window.localStorage/sessionStorage 자체를 "읽는" 시점에 예외가 나는 샌드박스도
+  // 있으므로, 프로퍼티 접근까지 통째로 try 안에서 매번 새로 수행한다.
+  function makeSafeStorage(kind){
+    return {
+      get(key, fallback){
+        try{ const v = window[kind].getItem(key); return v == null ? fallback : v; }
+        catch(_){ return fallback; }
+      },
+      set(key, value){
+        try{ window[kind].setItem(key, value); return true; }
+        catch(_){ return false; }
+      }
+    };
+  }
+  const safeLS = makeSafeStorage('localStorage');
+  const safeSS = makeSafeStorage('sessionStorage');
   // ==================== 설정 (고난이도) ====================
   const BPM = 176;                          // 음악 BPM (더 빠름)
   const BEAT_MS = 60000 / BPM;              // 1박 시간(ms)
@@ -444,7 +458,7 @@
   const PREP_MS = 3000;                     // 시작 준비 시간 (ms)
   const JUDGE_Y_RATIO = 0.78;               // 판정선 위치 (원본)
   // 노트 속도 배율 (높을수록 빨리 떨어짐 = 접근 시간 짧음)
-  let speedRate = parseFloat(localStorage.getItem('neonBeatSpeed') || '1') || 1;
+  let speedRate = parseFloat(safeLS.get('neonBeatSpeed', '1')) || 1;
   speedRate = Math.max(0.75, Math.min(2, Math.round(speedRate * 20) / 20));
   let cachedApproachMs = BASE_APPROACH_MS / speedRate;
   function approachMs(){ return cachedApproachMs; }
@@ -531,7 +545,7 @@
     return 0.45; // BAD
   }
   // 타이밍 오프셋(ms): 양수 = 판정을 뒤로(입력이 늦을 때), 음수 = 앞으로
-  let timingOffset = parseInt(localStorage.getItem('neonBeatOffset') || '0', 10) || 0;
+  let timingOffset = parseInt(safeLS.get('neonBeatOffset', '0'), 10) || 0;
   timingOffset = Math.max(-150, Math.min(150, timingOffset));
 
   // ==================== DOM ====================
@@ -567,6 +581,7 @@
   const finalAcc = document.getElementById('final-acc');
   const finalEarly = document.getElementById('final-early');
   const finalLate = document.getElementById('final-late');
+  const finalTotal = document.getElementById('final-total');
   const rankEl = document.getElementById('rank');
   const endTitle = document.getElementById('end-title');
 
@@ -591,7 +606,7 @@
   let prebuiltChart = null; // 랜덤 차트 미리 생성 (시작 렉 방지)
   const laneQueues = {0:[], 1:[], 2:[], 3:[]}; // 레인별 노트 큐 (tryHit 탐색 최적화용)
   const laneCursor = {0:0, 1:0, 2:0, 3:0};     // 각 레인에서 다음에 확인할 큐 위치
-  let best = parseInt(localStorage.getItem('neonBeatBest') || '0', 10);
+  let best = parseInt(safeLS.get('neonBeatBest', '0'), 10);
   bestStart.textContent = best;
   bestEnd.textContent = best;
 
@@ -642,17 +657,27 @@
   }
 
   let _snareBuffer = null, _hatBuffer = null;
+  // 반환값: 오디오 사용 가능 여부. AudioContext 생성이 막혀 있는(구형/일부 잠금 환경)
+  // 곳에서도 예외가 startGame()까지 전파돼 "시작 버튼을 눌러도 아무 반응 없음"이
+  // 되는 것을 막는다 — 실패 시 audioCtx는 null로 유지되고, 무음으로라도 진행한다.
   function initAudio(){
-    if(audioCtx) return;
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    masterGain = audioCtx.createGain();
-    masterGain.gain.value = muted ? 0 : 0.35;
-    masterGain.connect(audioCtx.destination);
-    // 노이즈 버퍼(스네어/하이햇)는 한 번만 생성해 재사용한다.
-    // AudioBuffer는 여러 BufferSourceNode에서 동시에 공유해도 안전하며(읽기 전용 재생),
-    // 매 비트마다 새 버퍼를 만들고 랜덤값을 채우는 비용(GC 압박 → 안드로이드 프레임 드랍)을 없앤다.
-    _snareBuffer = makeNoiseBuffer(0.15);
-    _hatBuffer = makeNoiseBuffer(0.2);
+    if(audioCtx) return true;
+    try{
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = muted ? 0 : 0.35;
+      masterGain.connect(audioCtx.destination);
+      // 노이즈 버퍼(스네어/하이햇)는 한 번만 생성해 재사용한다.
+      // AudioBuffer는 여러 BufferSourceNode에서 동시에 공유해도 안전하며(읽기 전용 재생),
+      // 매 비트마다 새 버퍼를 만들고 랜덤값을 채우는 비용(GC 압박 → 안드로이드 프레임 드랍)을 없앤다.
+      _snareBuffer = makeNoiseBuffer(0.15);
+      _hatBuffer = makeNoiseBuffer(0.2);
+      return true;
+    }catch(err){
+      audioCtx = null;
+      masterGain = null;
+      return false;
+    }
   }
 
   function makeNoiseBuffer(seconds){
@@ -800,7 +825,7 @@
     if(!data || !Array.isArray(data.notes) || data.notes.length === 0) return false;
     if(data.speed != null && isFinite(data.speed)){
       speedRate = Math.max(0.75, Math.min(2, Number(data.speed)));
-      localStorage.setItem('neonBeatSpeed', String(speedRate));
+      safeLS.set('neonBeatSpeed', String(speedRate));
       if(typeof refreshSpeedUI === 'function') refreshSpeedUI();
       if(typeof resize === 'function') resize();
     }
@@ -811,7 +836,11 @@
     } : null;
     const clean = sanitizeBeatNotes(data.notes);
     if(clean.length === 0) return false;
-    const bm = 60000 / (data.bpm || BPM);
+    // 붙여넣은/외부 JSON은 bpm이 0·음수·극단값일 수 있으므로 방어적으로 클램프한다.
+    // (에디터에서 저장한 정상 차트는 항상 60~300 범위라 이 클램프는 실질적으로 무영향)
+    const bpmRaw = Number(data.bpm);
+    const safeBpm = (isFinite(bpmRaw) && bpmRaw > 0) ? Math.max(60, Math.min(300, bpmRaw)) : BPM;
+    const bm = 60000 / safeBpm;
     chart = clean.map(n=>{
       const o = { t: n.t * bm, lane: n.lane };
       if(n.hold > 0) o.hold = n.hold * bm;
@@ -828,8 +857,8 @@
   }
 
   function loadCustomChart(){
-    const raw = localStorage.getItem('neonBeatCustomChart')
-      || sessionStorage.getItem('neonBeatCustomChart');
+    const raw = safeLS.get('neonBeatCustomChart', null)
+      || safeSS.get('neonBeatCustomChart', null);
     if(!raw) return false;
     let data;
     try{ data = parseChartText(raw); }catch(_){
@@ -1009,13 +1038,6 @@
       const n = chart[chartIdx];
       const isHold = !!n.hold;
       const holdDur = n.hold || 0;
-      const beats = holdDur / BEAT_MS;
-      let holdKind = null;
-      if(isHold){
-        if(beats < 1.5) holdKind = 'short';
-        else if(beats < 2.5) holdKind = 'mid';
-        else holdKind = 'long';
-      }
       const obj = {
         lane: n.lane,
         hitTime: n.t,
@@ -1024,7 +1046,6 @@
         hit: false,
         judged: false,
         isHold: isHold,
-        holdKind: holdKind,
         holdDur: holdDur,
         holdEndTime: n.t + holdDur,
         tailScroll: isHold ? scrollTimeAtSpawn(n.t + holdDur) : 0,
@@ -1047,9 +1068,6 @@
     // 또한 audioCtx가 suspend 상태일 땐 currentTime이 멈추므로, 일시정지 중에도
     // songTime이 자연히 멈춰서 별도의 pause 보정 로직이 필요 없다.
     if(useMusicTrack && musicAudio){
-      if(songTime >= PREP_MS && !musicStarted){
-        // PREP 종료 후 곡 시작 (audioCtx 시계로 PREP 진행)
-      }
       if(musicStarted && !musicAudio.paused){
         songTime = PREP_MS + musicAudio.currentTime * 1000;
       } else if(audioCtx){
@@ -1063,8 +1081,17 @@
             try{
               a.currentTime = 0;
               a.volume = vol;
-              a.play().catch(()=>{});
-            }catch(_){}
+              a.play().catch(()=>{
+                // 자동재생 차단 등으로 실제 재생이 거부된 경우: 화면엔 노트가 이미
+                // 흐르고 있으므로 무음으로 두지 않고 합성 비트로 넘어간다.
+                if(useMusicTrack){
+                  useMusicTrack = false;
+                  setStartMsg('음악 자동재생이 차단되어 합성 비트로 진행합니다.', '#ffd23f');
+                }
+              });
+            }catch(_){
+              useMusicTrack = false;
+            }
           });
         }
       }
@@ -1578,103 +1605,120 @@
   canvas.addEventListener('pointerleave', releasePointer);
 
   // ==================== 게임 흐름 ====================
+  let gameStarting = false; // 시작·재시작 버튼 연타로 startGame()이 겹쳐 실행되는 것 방지
   async function startGame(){
-    setStartMsg('');
-    initAudio();
-    stopMusicTrack();
-    pendingSongMeta = null;
-
-    score = 0; combo = 0; maxCombo = 0;
-    hits = 0; totalNotes = 0; judged = 0;
-    earlyCount = 0; lateCount = 0;
-    notes = []; particles = [];
-    chartIdx = 0;
-    for(const l of [0,1,2,3]){ laneQueues[l] = []; laneCursor[l] = 0; }
-    for(const l in keysDown) keysDown[l] = false;
-    pointerLane.clear();
-    beatCount = 0;
-    songTime = 0;
-    // 차트·음악 로드를 먼저 끝낸 뒤 시계를 시작 (시작 렉·시간 점프 방지)
-    if(useCustomChart){
-      if(!loadCustomChart()){
-        setStartMsg('저장된 커스텀 차트가 없습니다. 에디터에서 저장하거나 JSON을 붙여넣으세요.', '#ff3d81');
-        useCustomChart = false;
+    if(gameStarting) return;
+    gameStarting = true;
+    try{
+      setStartMsg('');
+      if(!initAudio()){
+        setStartMsg('이 브라우저에서는 오디오를 사용할 수 없어 게임을 시작할 수 없습니다.', '#ff3d81');
         return;
       }
-      if(pendingSongMeta && pendingSongMeta.songId){
-        try{
-          const row = await idbGetSong(pendingSongMeta.songId);
-          if(row && row.blob){
-            musicUrl = URL.createObjectURL(row.blob);
-            musicAudio = new Audio(musicUrl);
-            musicAudio.preload = 'auto';
-            musicAudio.volume = muted ? 0 : 0.85;
-            useMusicTrack = true;
-            musicStarted = false;
-            try{ musicAudio.load(); }catch(_){}
-            // play()/pause 워밍은 메인 스레드를 막아 시작 렉 유발 → 제거
-          } else {
-            setStartMsg('Song ID 오디오 없음: '+pendingSongMeta.songId+' (에디터에서 같은 브라우저로 다시 「음악」 불러오기)', '#ffd23f');
-          }
-        }catch(err){
-          setStartMsg('음악 로드 실패', '#ff3d81');
+      stopMusicTrack();
+      pendingSongMeta = null;
+
+      score = 0; combo = 0; maxCombo = 0;
+      hits = 0; totalNotes = 0; judged = 0;
+      earlyCount = 0; lateCount = 0;
+      notes = []; particles = [];
+      chartIdx = 0;
+      for(const l of [0,1,2,3]){ laneQueues[l] = []; laneCursor[l] = 0; }
+      for(const l in keysDown) keysDown[l] = false;
+      pointerLane.clear();
+      beatCount = 0;
+      songTime = 0;
+      // 차트·음악 로드를 먼저 끝낸 뒤 시계를 시작 (시작 렉·시간 점프 방지)
+      if(useCustomChart){
+        if(!loadCustomChart()){
+          setStartMsg('저장된 커스텀 차트가 없습니다. 에디터에서 저장하거나 JSON을 붙여넣으세요.', '#ff3d81');
+          useCustomChart = false;
+          return;
         }
-      }
-    } else {
-      if(prebuiltChart && prebuiltChart.length){
-        chart = prebuiltChart.map(n=>({ t: n.t, lane: n.lane, hold: n.hold }));
+        if(pendingSongMeta && pendingSongMeta.songId){
+          try{
+            const row = await idbGetSong(pendingSongMeta.songId);
+            if(row && row.blob){
+              musicUrl = URL.createObjectURL(row.blob);
+              musicAudio = new Audio(musicUrl);
+              musicAudio.preload = 'auto';
+              musicAudio.volume = muted ? 0 : 0.85;
+              useMusicTrack = true;
+              musicStarted = false;
+              // 자동재생 차단·디코딩 실패 등으로 파일이 아예 재생되지 않을 수 있으므로,
+              // 에러 시 합성 비트로 자동 전환해 "음악도 비트도 없는 무음 진행"을 막는다.
+              musicAudio.onerror = ()=>{
+                if(musicAudio) stopMusicTrack();
+                useMusicTrack = false;
+                setStartMsg('음악 파일을 재생할 수 없어 합성 비트로 진행합니다.', '#ffd23f');
+              };
+              try{ musicAudio.load(); }catch(_){}
+              // play()/pause 워밍은 메인 스레드를 막아 시작 렉 유발 → 제거
+            } else {
+              setStartMsg('Song ID 오디오 없음: '+pendingSongMeta.songId+' (에디터에서 같은 브라우저로 다시 「음악」 불러오기)', '#ffd23f');
+            }
+          }catch(err){
+            setStartMsg('음악 로드 실패', '#ff3d81');
+          }
+        }
       } else {
-        generateChart();
-      }
-      prebuiltChart = null;
-      chartSpeedTriggers = [];
-      const regen = ()=>{
-        // 플레이 중 active chart를 덮어쓰지 않도록 백업
-        const active = chart;
-        try{
+        if(prebuiltChart && prebuiltChart.length){
+          chart = prebuiltChart.map(n=>({ t: n.t, lane: n.lane, hold: n.hold }));
+        } else {
           generateChart();
-          prebuiltChart = chart.map(n=>({ t: n.t, lane: n.lane, hold: n.hold }));
-        }catch(_){}
-        chart = active;
-      };
-      if(typeof requestIdleCallback === 'function') requestIdleCallback(regen, { timeout: 2500 });
-      else setTimeout(regen, 50);
-    }
-    for(const n of chart) n.t += PREP_MS;
-    for(const tr of chartSpeedTriggers) tr.t += PREP_MS;
-    speedTriggerIdx = 0;
-
-    resize();
-    applyPlaySpeed(speedRate, { ui:true, snap:true });
-    buildSpeedSegments();
-    speedChangeCooldown = 0;
-    songTime = 0;
-    // 프리 스폰 없음 — 첫 프레임부터 소량씩 (시작 렉 핵심)
-    if(audioCtx){
-      if(audioCtx.state === 'suspended'){
-        try{ await audioCtx.resume(); }catch(_){}
+        }
+        prebuiltChart = null;
+        chartSpeedTriggers = [];
+        const regen = ()=>{
+          // 플레이 중 active chart를 덮어쓰지 않도록 백업
+          const active = chart;
+          try{
+            generateChart();
+            prebuiltChart = chart.map(n=>({ t: n.t, lane: n.lane, hold: n.hold }));
+          }catch(_){}
+          chart = active;
+        };
+        if(typeof requestIdleCallback === 'function') requestIdleCallback(regen, { timeout: 2500 });
+        else setTimeout(regen, 50);
       }
-      await new Promise(r=> requestAnimationFrame(r));
-      audioStartTime = audioCtx.currentTime;
-      nextBeatTime = audioStartTime + 0.3;
-    } else {
-      await new Promise(r=> requestAnimationFrame(r));
-      audioStartTime = 0;
-      nextBeatTime = 0.3;
-    }
-    songTime = 0;
-    lastTime = 0;
+      for(const n of chart) n.t += PREP_MS;
+      for(const tr of chartSpeedTriggers) tr.t += PREP_MS;
+      speedTriggerIdx = 0;
 
-    running = true; paused = false;
-    startScreen.classList.add('hidden');
-    pauseScreen.classList.add('hidden');
-    endScreen.classList.add('hidden');
-    if(typeof helpScreen !== 'undefined' && helpScreen) helpScreen.classList.add('hidden');
-    pauseBtn.classList.remove('hidden');
-    muteBtn.classList.remove('hidden');
-    updateHUD();
-    if(timingSideEl) timingSideEl.style.opacity = '0';
-    if(!(pendingSongMeta && !useMusicTrack)) setStartMsg('');
+      resize();
+      applyPlaySpeed(speedRate, { ui:true, snap:true });
+      buildSpeedSegments();
+      speedChangeCooldown = 0;
+      songTime = 0;
+      // 프리 스폰 없음 — 첫 프레임부터 소량씩 (시작 렉 핵심)
+      if(audioCtx){
+        if(audioCtx.state === 'suspended'){
+          try{ await audioCtx.resume(); }catch(_){}
+        }
+        await new Promise(r=> requestAnimationFrame(r));
+        audioStartTime = audioCtx.currentTime;
+        nextBeatTime = audioStartTime + 0.3;
+      } else {
+        await new Promise(r=> requestAnimationFrame(r));
+        audioStartTime = 0;
+        nextBeatTime = 0.3;
+      }
+      songTime = 0;
+      lastTime = 0;
+
+      running = true; paused = false;
+      startScreen.classList.add('hidden');
+      pauseScreen.classList.add('hidden');
+      endScreen.classList.add('hidden');
+      if(typeof helpScreen !== 'undefined' && helpScreen) helpScreen.classList.add('hidden');
+      pauseBtn.classList.remove('hidden');
+      muteBtn.classList.remove('hidden');
+      updateHUD();
+      if(timingSideEl) timingSideEl.style.opacity = '0';
+      if(!(pendingSongMeta && !useMusicTrack)) setStartMsg('');
+    } finally {
+      gameStarting = false;
+    }
   }
 
   function togglePause(){
@@ -1727,7 +1771,7 @@
 
     if(score > best){
       best = score;
-      localStorage.setItem('neonBeatBest', best);
+      safeLS.set('neonBeatBest', best);
     }
     bestStart.textContent = best;
     bestEnd.textContent = best;
@@ -1737,6 +1781,7 @@
     finalAcc.textContent = acc + '%';
     if(finalEarly) finalEarly.textContent = earlyCount;
     if(finalLate) finalLate.textContent = lateCount;
+    if(finalTotal) finalTotal.textContent = totalNotes;
 
     // 세밀 등급: 정확도 + 최고 콤보 보너스
     let rank = 'D';
@@ -1777,8 +1822,8 @@
 
   startBtn.addEventListener('click', ()=>{ useCustomChart = false; startGame(); });
   if(customBtn) customBtn.addEventListener('click', ()=>{
-    const has = localStorage.getItem('neonBeatCustomChart')
-      || sessionStorage.getItem('neonBeatCustomChart');
+    const has = safeLS.get('neonBeatCustomChart', null)
+      || safeSS.get('neonBeatCustomChart', null);
     if(!has){
       setStartMsg('커스텀 차트 없음 → 에디터에서 「저장」 후 다시 누르거나, 아래 JSON 붙여넣기를 사용하세요.', '#ffd23f');
       return;
@@ -1795,8 +1840,9 @@
         setStartMsg('형식이 올바르지 않거나 노트가 없습니다.', '#ff3d81');
         return;
       }
-      localStorage.setItem('neonBeatCustomChart', JSON.stringify(data));
-      sessionStorage.setItem('neonBeatCustomChart', JSON.stringify(data));
+      const importedJson = JSON.stringify(data);
+      safeLS.set('neonBeatCustomChart', importedJson);
+      safeSS.set('neonBeatCustomChart', importedJson);
       setStartMsg('가져오기 완료! 「커스텀 차트 플레이」 (노트 '+data.notes.length+'개)', '#3fe0ff');
     }catch(err){
       setStartMsg('파싱 실패: '+(err && err.message ? err.message : err), '#ff3d81');
@@ -1814,8 +1860,8 @@
       const data = parseChartText(String(text).split('\n')[0]);
       if(!applyCustomChartData(data)) return false;
       const json = JSON.stringify(data);
-      localStorage.setItem('neonBeatCustomChart', json);
-      sessionStorage.setItem('neonBeatCustomChart', json);
+      safeLS.set('neonBeatCustomChart', json);
+      safeSS.set('neonBeatCustomChart', json);
       history.replaceState(null, '', location.pathname + location.search);
       setStartMsg('에디터에서 차트 수신 → 「커스텀 차트 플레이」 (노트 '+data.notes.length+'개)', '#3fe0ff');
       return true;
@@ -1826,9 +1872,9 @@
   }
   try{
     if(!ingestChartFromHash()){
-      if(sessionStorage.getItem('neonBeatCustomChart')){
+      if(safeSS.get('neonBeatCustomChart', null)){
         setStartMsg('에디터 차트가 준비됨 → 「커스텀 차트 플레이」', '#3fe0ff');
-      } else if(localStorage.getItem('neonBeatCustomChart')){
+      } else if(safeLS.get('neonBeatCustomChart', null)){
         setStartMsg('저장된 커스텀 차트 있음 → 「커스텀 차트 플레이」', '#9a4dff');
       }
     }
@@ -1858,7 +1904,7 @@
   }
   function changeOffset(delta){
     timingOffset = Math.max(-150, Math.min(150, timingOffset + delta));
-    localStorage.setItem('neonBeatOffset', String(timingOffset));
+    safeLS.set('neonBeatOffset', String(timingOffset));
     refreshOffsetUI();
   }
   ['offset-minus','offset-minus-end'].forEach(id=>{
@@ -1881,7 +1927,7 @@
   }
   function changeSpeed(delta){
     const next = Math.max(0.75, Math.min(2, Math.round((speedRate + delta) * 20) / 20));
-    localStorage.setItem('neonBeatSpeed', String(next));
+    safeLS.set('neonBeatSpeed', String(next));
     applyPlaySpeed(next, { ui:true });
   }
   ['speed-minus','speed-minus-end'].forEach(id=>{

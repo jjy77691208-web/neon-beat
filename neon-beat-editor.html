@@ -2,9 +2,10 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>네온 비트 · 차트 에디터</title>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Noto+Sans+KR:wght@400;600;700&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#06040e">
 <style>
   :root{
     --bg:#06040e; --panel:#0e0a1c; --text:#f0ecff; --dim:#7a7499;
@@ -68,7 +69,8 @@
   /* ===== 상단 툴바 ===== */
   #toolbar{
     display:flex; flex-wrap:wrap; gap:6px; align-items:center;
-    padding:10px 12px; background:var(--panel);
+    padding:10px 12px; padding-top:max(10px, env(safe-area-inset-top));
+    background:var(--panel);
     border-bottom:1px solid var(--line);
     z-index:20;
   }
@@ -126,7 +128,8 @@
   /* ===== 하단 액션 ===== */
   #actions{
     display:flex; gap:8px; flex-wrap:wrap;
-    padding:10px 12px; background:var(--panel);
+    padding:10px 12px; padding-bottom:max(10px, env(safe-area-inset-bottom));
+    background:var(--panel);
     border-top:1px solid var(--line);
   }
   #actions button{ flex:1; min-width:80px; padding:10px 8px; }
@@ -186,10 +189,10 @@
   <div id="toolbar">
     <div class="tool-group">
       <span class="tool-label">도구</span>
-      <button type="button" id="tool-tap" class="active" title="탭 노트">탭</button>
-      <button type="button" id="tool-hold" title="홀드 노트">홀드</button>
-      <button type="button" id="tool-speed" title="속도 트리거 (중간 배속 변경)">속도</button>
-      <button type="button" id="tool-erase" title="지우개">지우개</button>
+      <button type="button" id="tool-tap" class="active" aria-pressed="true" title="탭 노트">탭</button>
+      <button type="button" id="tool-hold" aria-pressed="false" title="홀드 노트">홀드</button>
+      <button type="button" id="tool-speed" aria-pressed="false" title="속도 트리거 (중간 배속 변경)">속도</button>
+      <button type="button" id="tool-erase" aria-pressed="false" title="지우개">지우개</button>
     </div>
     <div class="tool-group">
       <span class="tool-label">BPM</span>
@@ -201,9 +204,9 @@
     </div>
     <div class="tool-group">
       <span class="tool-label">스냅</span>
-      <button type="button" id="snap-4" class="active">1/4</button>
-      <button type="button" id="snap-8">1/8</button>
-      <button type="button" id="snap-16">1/16</button>
+      <button type="button" id="snap-4" class="active" aria-pressed="true">1/4</button>
+      <button type="button" id="snap-8" aria-pressed="false">1/8</button>
+      <button type="button" id="snap-16" aria-pressed="false">1/16</button>
     </div>
     <div class="tool-group">
       <span class="tool-label">스크롤</span>
@@ -227,7 +230,7 @@
   </div>
 
   <div id="editor-wrap">
-    <canvas id="editor"></canvas>
+    <canvas id="editor" role="img" aria-label="채보 편집 캔버스"></canvas>
     <div id="hint">
       탭/홀드 배치 · 우클릭 삭제<br>
       스크롤: 휠 · ▲▼ · Space+드래그 · 두 손가락<br>
@@ -400,6 +403,26 @@
   const PREP_MS = 2000;
   const BASE_APPROACH_MS = 900;
 
+  // ==================== 안전한 로컬 저장소 접근 ====================
+  // 일부 브라우저의 프라이빗 모드·차단된 저장소 설정에서는 localStorage/
+  // sessionStorage 접근 자체가 예외를 던질 수 있다. 이 스크립트는 아래에서
+  // 곧바로 localStorage를 읽으므로, 예외를 잡지 않으면 에디터 전체가
+  // 로드되자마자 멈춘다. 프로퍼티 접근까지 포함해 항상 try 안에서 수행한다.
+  function makeSafeStorage(kind){
+    return {
+      get(key, fallback){
+        try{ const v = window[kind].getItem(key); return v == null ? fallback : v; }
+        catch(_){ return fallback; }
+      },
+      set(key, value){
+        try{ window[kind].setItem(key, value); return true; }
+        catch(_){ return false; }
+      }
+    };
+  }
+  const safeLS = makeSafeStorage('localStorage');
+  const safeSS = makeSafeStorage('sessionStorage');
+
   // GD식 Song ID: 채보에는 id/메타만, 오디오 바이너리는 IndexedDB
   /** @type {{id:string,name:string,duration:number}|null} */
   let currentSong = null;
@@ -554,7 +577,7 @@
     }
   }
   const HIT_WINDOWS = { perfect:40, great:80, good:120, miss:150 };
-  let speedRate = parseFloat(localStorage.getItem('neonBeatSpeed') || '1') || 1;
+  let speedRate = parseFloat(safeLS.get('neonBeatSpeed', '1')) || 1;
   speedRate = Math.max(0.75, Math.min(2, Math.round(speedRate * 20) / 20));
   function approachMs(){ return BASE_APPROACH_MS / speedRate; }
 
@@ -1146,11 +1169,13 @@
   // ===== 툴바 =====
   function setTool(t){
     tool = t;
-    document.getElementById('tool-tap').classList.toggle('active', t==='tap');
-    document.getElementById('tool-hold').classList.toggle('active', t==='hold');
-    const ts = document.getElementById('tool-speed');
-    if(ts) ts.classList.toggle('active', t==='speed');
-    document.getElementById('tool-erase').classList.toggle('active', t==='erase');
+    [['tool-tap','tap'],['tool-hold','hold'],['tool-speed','speed'],['tool-erase','erase']].forEach(([id,val])=>{
+      const el = document.getElementById(id);
+      if(!el) return;
+      const on = t === val;
+      el.classList.toggle('active', on);
+      el.setAttribute('aria-pressed', String(on));
+    });
   }
   document.getElementById('tool-tap').onclick = ()=> setTool('tap');
   document.getElementById('tool-hold').onclick = ()=> setTool('hold');
@@ -1160,7 +1185,10 @@
   function setSnap(d){
     snapDiv = d;
     ['4','8','16'].forEach(s=>{
-      document.getElementById('snap-'+s).classList.toggle('active', String(d)===s);
+      const el = document.getElementById('snap-'+s);
+      const on = String(d)===s;
+      el.classList.toggle('active', on);
+      el.setAttribute('aria-pressed', String(on));
     });
   }
   document.getElementById('snap-4').onclick = ()=> setSnap(4);
@@ -1195,7 +1223,7 @@
   }
   function changeSpeed(delta){
     speedRate = Math.max(0.75, Math.min(2, Math.round((speedRate + delta) * 20) / 20));
-    localStorage.setItem('neonBeatSpeed', String(speedRate));
+    safeLS.set('neonBeatSpeed', String(speedRate));
     refreshSpeedLabel();
     syncScaleToPlay();
     drawEditor();
@@ -1369,11 +1397,16 @@
   function applyChart(data, opts){
     if(!data || !Array.isArray(data.notes)) throw new Error('잘못된 차트 형식');
     if(!opts || !opts.noHistory) pushHistory();
-    bpm = data.bpm || 176;
-    bars = data.bars || 16;
+    // 수동 입력(bpmInput/barsInput onchange)과 동일한 범위로 방어적 클램프.
+    // 가져오기/불러오기 경로는 이 클램프를 거치지 않았어서, bpm이 0/음수/비정상이면
+    // beatMs()=60000/bpm 이 Infinity·NaN이 되어 캔버스 전체가 빈 화면으로 깨질 수 있었다.
+    const bpmRaw = Number(data.bpm);
+    bpm = (isFinite(bpmRaw) && bpmRaw > 0) ? Math.max(60, Math.min(300, bpmRaw)) : 176;
+    const barsRaw = Number(data.bars);
+    bars = (isFinite(barsRaw) && barsRaw > 0) ? Math.max(4, Math.min(64, Math.round(barsRaw))) : 16;
     if(data.speed != null && isFinite(data.speed)){
       speedRate = Math.max(0.75, Math.min(2, data.speed));
-      localStorage.setItem('neonBeatSpeed', String(speedRate));
+      safeLS.set('neonBeatSpeed', String(speedRate));
       if(typeof refreshSpeedLabel === 'function') refreshSpeedLabel();
       if(typeof syncScaleToPlay === 'function') syncScaleToPlay();
     }
@@ -1409,13 +1442,11 @@
   function persistChart(data){
     const json = JSON.stringify(data);
     const compact = encodeCompact(data);
-    try{
-      localStorage.setItem(STORAGE_KEY, json);
-      sessionStorage.setItem(STORAGE_KEY, json);
-      sessionStorage.setItem(STORAGE_KEY + 'Compact', compact);
-      localStorage.setItem('neonBeatCustomChartReady', '1');
-    }catch(_){}
-    return { json, compact };
+    const ok1 = safeLS.set(STORAGE_KEY, json);
+    const ok2 = safeSS.set(STORAGE_KEY, json);
+    safeSS.set(STORAGE_KEY + 'Compact', compact);
+    safeLS.set('neonBeatCustomChartReady', '1');
+    return { json, compact, saved: ok1 || ok2 };
   }
 
   /** file:// 에서도 동작: URL 해시로 차트 전달 */
@@ -1432,12 +1463,16 @@
   document.getElementById('btn-save').onclick = ()=>{
     const data = chartObject();
     if(!data.notes.length){ alert('저장할 노트가 없습니다.'); return; }
-    persistChart(data);
-    alert('저장됨.\n· 같은 브라우저면 게임에서 「커스텀 차트 플레이」\n· 안 되면 「게임으로」를 쓰거나 내보내기 코드를 붙여넣으세요.');
+    const result = persistChart(data);
+    if(result.saved){
+      alert('저장됨.\n· 같은 브라우저면 게임에서 「커스텀 차트 플레이」\n· 안 되면 「게임으로」를 쓰거나 내보내기 코드를 붙여넣으세요.');
+    } else {
+      alert('브라우저 저장소에 저장하지 못했습니다(용량 초과 또는 저장소 차단).\n대신 「내보내기」로 코드를 복사해 두거나 「게임으로」를 사용하세요.');
+    }
   };
 
   document.getElementById('btn-load').onclick = ()=>{
-    const raw = localStorage.getItem(STORAGE_KEY) || sessionStorage.getItem(STORAGE_KEY);
+    const raw = safeLS.get(STORAGE_KEY, null) || safeSS.get(STORAGE_KEY, null);
     if(!raw){ alert('저장된 차트가 없습니다.'); return; }
     try{
       applyChart(typeof raw === 'string' && raw[0] === '{' ? JSON.parse(raw) : parseChartText(raw));
@@ -1475,21 +1510,29 @@
     if(ioMode === 'export'){
       // 압축 한 줄만 복사
       const line = ioText.value.split('\n')[0];
-      try{ navigator.clipboard.writeText(line); alert('압축 코드 복사됨:\n'+line); }catch(_){
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(line).then(()=>{
+          alert('압축 코드 복사됨:\n'+line);
+        }).catch(()=>{
+          ioText.select();
+          alert('클립보드 복사에 실패했습니다. 선택된 텍스트를 직접 복사해 주세요.');
+        });
+      } else {
         ioText.select();
       }
       ioModal.classList.remove('show');
       return;
     }
     try{
-      // JSON 블록이 있으면 우선, 아니면 전체 파싱
       let text = ioText.value.trim();
+      if(!text) throw new Error('내용이 비어 있습니다');
+      // '{' 가 있으면 그 지점부터를 JSON으로 우선 파싱한다(내보내기 형식과 정확히 일치).
+      // 압축 줄에 우연히 '-'가 들어가는 경우(예: 곡 이름)에도 안전하게 동작한다.
       const jsonStart = text.indexOf('{');
-      if(jsonStart > 0 && text.indexOf('-') < jsonStart){
-        // 압축 줄 + JSON 이면 첫 줄 사용
-        text = text.split('\n')[0].trim();
-      }
-      applyChart(parseChartText(text));
+      const data = jsonStart !== -1
+        ? JSON.parse(text.slice(jsonStart))
+        : parseChartText(text.split('\n')[0].trim());
+      applyChart(data);
       ioModal.classList.remove('show');
     }catch(err){
       alert('가져오기 실패: '+err.message);
@@ -1555,10 +1598,15 @@
 
   function initAudio(){
     if(audioCtx) return;
-    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
-    masterGain = audioCtx.createGain();
-    masterGain.gain.value = 0.3;
-    masterGain.connect(audioCtx.destination);
+    try{
+      audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = 0.3;
+      masterGain.connect(audioCtx.destination);
+    }catch(_){
+      audioCtx = null;
+      masterGain = null;
+    }
   }
   function beep(t, freq, dur){
     if(!audioCtx) return;
@@ -1860,7 +1908,7 @@
 
   // 자동 로드
   try{
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = safeLS.get(STORAGE_KEY, null);
     if(raw) applyChart(JSON.parse(raw));
   }catch(_){}
 
