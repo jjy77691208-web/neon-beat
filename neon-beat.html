@@ -181,6 +181,47 @@
     box-shadow:none;
     border:1px solid rgba(255,255,255,0.25);
   }
+  .btn.btn-secondary{
+    background:rgba(63,224,255,0.88);
+    border:none;
+    color:#04121a;
+    box-shadow:0 0 14px rgba(63,224,255,0.5);
+    text-shadow:none;
+    width:180px;
+    max-width:80vw;
+    box-sizing:border-box;
+    padding:12px 10px;
+    font-size:13px;
+  }
+  .btn.btn-secondary:hover{
+    background:rgba(63,224,255,1);
+    box-shadow:0 0 26px rgba(63,224,255,0.75);
+    text-shadow:none;
+  }
+  .btn.btn-secondary.accent-pink{
+    background:rgba(255,61,129,0.88);
+    box-shadow:0 0 14px rgba(255,61,129,0.5);
+  }
+  .btn.btn-secondary.accent-pink:hover{
+    background:rgba(255,61,129,1);
+    box-shadow:0 0 26px rgba(255,61,129,0.75);
+  }
+  .btn.btn-secondary.accent-yellow{
+    background:rgba(255,210,63,0.88);
+    box-shadow:0 0 14px rgba(255,210,63,0.5);
+  }
+  .btn.btn-secondary.accent-yellow:hover{
+    background:rgba(255,210,63,1);
+    box-shadow:0 0 26px rgba(255,210,63,0.75);
+  }
+  .btn.btn-secondary.accent-purple{
+    background:rgba(154,77,255,0.88);
+    box-shadow:0 0 14px rgba(154,77,255,0.5);
+  }
+  .btn.btn-secondary.accent-purple:hover{
+    background:rgba(154,77,255,1);
+    box-shadow:0 0 26px rgba(154,77,255,0.75);
+  }
 
   .score-line{
     font-family:'Orbitron', sans-serif;
@@ -360,10 +401,10 @@
     </div>
     <div class="offset-hint">높을수록 노트가 빨리 떨어짐 (0.75× ~ 2.00×)</div>
     <button class="btn" id="start-btn">랜덤 플레이</button>
-    <button class="btn" id="custom-btn" style="margin-top:10px;background:rgba(154,77,255,0.2);border-color:rgba(154,77,255,0.45);">커스텀 차트 플레이</button>
-    <button class="btn" id="import-custom-btn" style="margin-top:8px;background:rgba(255,255,255,0.06);font-size:12px;">커스텀 JSON 붙여넣기</button>
-    <a class="btn" id="editor-link" href="neon-beat-editor.html" style="margin-top:10px;text-decoration:none;display:inline-block;background:rgba(63,224,255,0.12);">차트 에디터 열기</a>
-    <button class="btn" id="help-btn" style="margin-top:10px;background:rgba(255,255,255,0.06);font-size:13px;">도움말 · 기능 설명</button>
+    <button class="btn btn-secondary accent-purple" id="custom-btn" style="margin-top:10px;">커스텀 차트 플레이</button>
+    <button class="btn btn-secondary accent-yellow" id="import-custom-btn" style="margin-top:8px;">커스텀 JSON 붙여넣기</button>
+    <a class="btn btn-secondary" id="editor-link" href="neon-beat-editor.html" style="margin-top:10px;text-decoration:none;display:inline-block;">차트 에디터 열기</a>
+    <button class="btn btn-secondary accent-pink" id="help-btn" style="margin-top:10px;">도움말 · 기능 설명</button>
     <div id="start-msg" style="margin-top:10px;font-size:12px;color:#ffd23f;min-height:18px;"></div>
     <div class="score-line">최고 점수 <span id="best-start">0</span></div>
   </div>
@@ -399,8 +440,8 @@
     <div class="title" style="font-size:32px;">일시정지</div>
     <div class="subtitle">원하시는 메뉴를 선택하세요.</div>
     <button class="btn" id="resume-btn">계속하기</button>
-    <button class="btn" id="pause-home-btn" style="margin-top:10px;background:rgba(255,255,255,0.08);">홈으로 가기</button>
-    <button class="btn" id="pause-editor-btn" style="margin-top:10px;background:rgba(63,224,255,0.12);">에디터로 가기</button>
+    <button class="btn btn-secondary accent-pink" id="pause-home-btn" style="margin-top:10px;">홈으로 가기</button>
+    <button class="btn btn-secondary" id="pause-editor-btn" style="margin-top:10px;">에디터로 가기</button>
   </div>
 
   <div class="overlay hidden" id="end-screen">
