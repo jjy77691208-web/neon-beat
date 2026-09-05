@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#080814">
+<title>네온 비트: 리듬 세션</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rubik:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/shared.css">
+<link rel="stylesheet" href="css/game.css">
+</head>
+<body>
+
+<div id="rotate-lock" class="hidden">
+  <div class="rotate-icon">📱</div>
+  <div class="rotate-title">화면 회전</div>
+  <div class="rotate-sub">세로·가로 모두 플레이할 수 있어요.</div>
+</div>
+
+<div id="wrap">
+  
+  <canvas id="game" role="img" aria-label="네온 비트 리듬 게임 플레이 화면"></canvas>
+
+  <div id="hud">
+    <div class="hud-block">
+      <div class="hud-label">점수</div>
+      <div class="hud-value" id="score-value">0</div>
+    </div>
+    <div class="hud-block" style="align-items:center;">
+      <div class="hud-label">콤보</div>
+      <div class="hud-value" id="combo-value">0</div>
+    </div>
+    <div class="hud-block" style="align-items:flex-end;">
+      <div class="hud-label">정확도</div>
+      <div class="hud-value" id="acc-value">100%</div>
+    </div>
+  </div>
+
+  <div id="judge"></div>
+  <div id="timing-side"></div>
+  <div id="touch-hint">레인을 탭하거나 D F J K 키를 눌러 노트를 맞추세요 · P 로 일시정지</div>
+
+  <div id="top-controls">
+    <button id="mute-btn" class="hidden">🔊 소리</button>
+    <button id="pause-btn" class="hidden">일시정지</button>
+  </div>
+
+  <div class="overlay" id="start-screen">
+    <div class="title">네온 비트</div>
+    <div class="subtitle">
+      네 개의 레인을 따라 내려오는 노트를 <b>판정선</b>에 맞춰 정확히 눌러보세요.<br>
+      타이밍이 정확할수록 <b>Perfect</b>, 콤보가 쌓일수록 점수가 커집니다.<br>
+      <b style="color:var(--lane1)">홀드 노트</b>는 머리를 맞춘 뒤 꼬리까지 꾹 누르고 있어야 합니다.<br>
+      <b style="color:var(--lane2)">랜덤 차트</b> · <b style="color:var(--lane3)">커스텀 차트</b>(에디터) · 오프셋 조절
+    </div>
+    <div class="keys-demo">
+      <div class="key-chip" style="background:#ff3d81;">D</div>
+      <div class="key-chip" style="background:#ffd23f;">F</div>
+      <div class="key-chip" style="background:#3fe0ff;">J</div>
+      <div class="key-chip" style="background:#9a4dff;">K</div>
+    </div>
+    <div class="offset-row" id="offset-row">
+      <span class="offset-label">타이밍 오프셋</span>
+      <button type="button" class="offset-btn" id="offset-minus" aria-label="오프셋 감소">−</button>
+      <span class="offset-value" id="offset-value">0 ms</span>
+      <button type="button" class="offset-btn" id="offset-plus" aria-label="오프셋 증가">+</button>
+    </div>
+    <div class="offset-hint">입력이 늦으면 +, 빠르면 − (5ms 단위)</div>
+    <div class="offset-row" id="speed-row">
+      <span class="offset-label">노트 속도</span>
+      <button type="button" class="offset-btn" id="speed-minus" aria-label="속도 감소">−</button>
+      <span class="offset-value" id="speed-value">1.00×</span>
+      <button type="button" class="offset-btn" id="speed-plus" aria-label="속도 증가">+</button>
+    </div>
+    <div class="offset-hint">높을수록 노트가 빨리 떨어짐 (0.75× ~ 2.00×)</div>
+    <button class="btn" id="start-btn">랜덤 플레이</button>
+    <button class="btn btn-secondary accent-purple" id="custom-btn" style="margin-top:10px;">커스텀 차트 플레이</button>
+    <button class="btn btn-secondary accent-yellow" id="import-custom-btn" style="margin-top:8px;">커스텀 JSON 붙여넣기</button>
+    <a class="btn btn-secondary" id="editor-link" href="editor.html" style="margin-top:10px;text-decoration:none;display:inline-block;">차트 에디터 열기</a>
+    <button class="btn btn-secondary accent-pink" id="help-btn" style="margin-top:10px;">도움말 · 기능 설명</button>
+    <div id="start-msg" style="margin-top:10px;font-size:12px;color:#ffd23f;min-height:18px;"></div>
+    <div class="score-line">최고 점수 <span id="best-start">0</span></div>
+  </div>
+
+  <div class="overlay hidden" id="help-screen" style="z-index:25;overflow:auto;padding:24px 16px;">
+    <div class="title" style="font-size:28px;margin-bottom:8px;">도움말</div>
+    <div class="subtitle" style="text-align:left;max-width:420px;margin:0 auto 16px;line-height:1.55;">
+      <b style="color:var(--lane2)">조작</b><br>
+      · 키보드 <b>D F J K</b> (왼쪽→오른쪽 레인)<br>
+      · 터치·클릭으로 해당 레인 입력<br>
+      · 홀드는 판정선에서 머리를 맞춘 뒤 <b>끝까지 유지</b><br><br>
+      <b style="color:var(--lane1)">판정 · 오프셋</b><br>
+      · Perfect / Great / Good / Miss<br>
+      · 입력이 늦게 느껴지면 오프셋 <b>+</b>, 빠르면 <b>−</b><br>
+      · 결과 화면의 빠름/느림 개수를 참고<br><br>
+      <b style="color:var(--lane3)">노트 속도</b><br>
+      · 0.75× ~ 2.00× · 높을수록 빨리 떨어짐<br>
+      · 설정은 브라우저에 저장됨<br><br>
+      <b style="color:var(--lane4)">플레이 모드</b><br>
+      · <b>랜덤</b> — 매번 다른 패턴 + 합성 비트<br>
+      · <b>커스텀</b> — 에디터에서 만든 채보<br>
+      · 커스텀에 Song ID가 있으면 해당 음악 재생<br>
+      · 음악이 안 나오면 에디터에서 같은 브라우저로 곡을 다시 선택<br><br>
+      <b>기타</b><br>
+      · 세로·가로 화면 모두 플레이 가능<br>
+      · 일시정지 / 음소거 지원<br>
+      · 빈 입력(허공 클릭)은 점수·정확도에 패널티
+    </div>
+    <button class="btn" id="help-close-btn">닫기</button>
+  </div>
+
+  <div class="overlay hidden" id="pause-screen">
+    <div class="title" style="font-size:32px;">일시정지</div>
+    <div class="subtitle">원하시는 메뉴를 선택하세요.</div>
+    <button class="btn" id="resume-btn">계속하기</button>
+    <button class="btn btn-secondary accent-pink" id="pause-home-btn" style="margin-top:10px;">홈으로 가기</button>
+    <button class="btn btn-secondary" id="pause-editor-btn" style="margin-top:10px;">에디터로 가기</button>
+  </div>
+
+  <div class="overlay hidden" id="end-screen">
+    <div class="title" id="end-title">세션 종료</div>
+    <div id="rank">-</div>
+    <div class="subtitle" style="margin-bottom:6px;">최종 점수 <span style="color:var(--lane2); font-weight:700;" id="final-score">0</span></div>
+    <div class="score-line">최고 콤보 <span id="final-combo">0</span> · 정확도 <span id="final-acc">0%</span></div>
+    <div class="score-line">전체 노트 <span id="final-total">0</span> · 빠름 <span id="final-early">0</span> · 느림 <span id="final-late">0</span></div>
+    <div class="score-line">최고 점수 <span id="best-end">0</span></div>
+    <div class="offset-row" style="margin-top:14px;">
+      <span class="offset-label">판정 오프셋</span>
+      <button type="button" class="offset-btn" id="offset-minus-end" aria-label="오프셋 감소">−</button>
+      <span class="offset-value" id="offset-value-end">0 ms</span>
+      <button type="button" class="offset-btn" id="offset-plus-end" aria-label="오프셋 증가">+</button>
+    </div>
+    <div class="offset-row">
+      <span class="offset-label">노트 속도</span>
+      <button type="button" class="offset-btn" id="speed-minus-end" aria-label="속도 감소">−</button>
+      <span class="offset-value" id="speed-value-end">1.00×</span>
+      <button type="button" class="offset-btn" id="speed-plus-end" aria-label="속도 증가">+</button>
+    </div>
+    <div class="offset-hint">느림이 많으면 + · 빠름이 많으면 − · 속도 조절 후 다시 플레이</div>
+    <button class="btn" id="restart-btn" style="margin-top:12px;">다시 플레이</button>
+  </div>
+</div>
+
+<script src="js/game/bundle.js"></script>
+</body>
+</html>

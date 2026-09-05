@@ -1,0 +1,8 @@
+/* shared.css — rules identical between game.html and editor.html.
+   Note: the two apps use different color-variable names/values and
+   different body fonts, so :root palettes stay local to game.css /
+   editor.css rather than being forced into a single shared palette
+   (that would risk changing either app's look). This file only holds
+   the one reset rule that was byte-identical in both original files. */
+
+*{ box-sizing:border-box; margin:0; padding:0; }
