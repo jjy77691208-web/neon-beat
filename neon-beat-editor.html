@@ -1,0 +1,3187 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>네온 비트 · 차트 에디터</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Noto+Sans+KR:wght@400;600;700&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#06040e">
+<style>
+/* shared.css — rules identical between game.html and editor.html.
+   Note: the two apps use different color-variable names/values and
+   different body fonts, so :root palettes stay local to game.css /
+   editor.css rather than being forced into a single shared palette
+   (that would risk changing either app's look). This file only holds
+   the one reset rule that was byte-identical in both original files. */
+
+*{
+  box-sizing:border-box; margin:0; padding:0;
+  /* touch-action does NOT inherit from html/body to children, so setting it
+     only on html,body (as before) left canvas/buttons at the default 'auto'
+     — which is why a second finger touching anywhere else during play could
+     still trigger the browser's pinch-zoom gesture. pan-x pan-y is applied
+     to everything by default (kills pinch-zoom and double-tap-zoom, but still
+     lets genuinely scrollable panels like the song list / help screen pan);
+     canvas overrides this to 'none' below since it handles all its own
+     gestures. */
+  touch-action:pan-x pan-y;
+  /* -webkit-touch-callout is what actually shows iOS's long-press "복사"
+     (Copy) menu — user-select:none alone does not suppress it, which is why
+     holding a note could pop up the native selection/copy callout. */
+  -webkit-touch-callout:none;
+  -webkit-user-select:none;
+  -webkit-tap-highlight-color:transparent;
+}
+
+</style>
+<style>
+/* editor.css — styles specific to editor.html (toolbar, canvas area, modals, help). */
+
+  :root{
+    --bg:#06040e; --panel:#0e0a1c; --text:#f0ecff; --dim:#7a7499;
+    --lane0:#ff3d81; --lane1:#ffd23f; --lane2:#3fe0ff; --lane3:#9a4dff;
+    --line:rgba(255,255,255,0.08); --accent:#3fe0ff;
+  }
+  html,body{
+    width:100%; height:100%;
+    background:var(--bg); color:var(--text);
+    font-family:'Noto Sans KR', sans-serif;
+    overflow:hidden;
+  }
+  #app{
+    display:grid;
+    grid-template-areas:
+      "toolbar"
+      "editor"
+      "actions";
+    grid-template-rows:auto 1fr auto;
+    grid-template-columns:1fr;
+    height:100%;
+    width:100%;
+    max-width:100%;
+    margin:0 auto;
+  }
+  #toolbar{ grid-area:toolbar; }
+  #editor-wrap{ grid-area:editor; }
+  #actions{ grid-area:actions; }
+
+  /* 가로: 왼쪽 툴 / 오른쪽 편집 영역 */
+  @media (orientation: landscape){
+    #app{
+      grid-template-areas:
+        "toolbar editor"
+        "actions editor";
+      grid-template-columns: minmax(150px, 22%) 1fr;
+      grid-template-rows: 1fr auto;
+    }
+    #toolbar{
+      flex-direction:column !important;
+      flex-wrap:nowrap !important;
+      align-items:stretch !important;
+      overflow-y:auto;
+      max-height:100%;
+      border-bottom:none;
+      border-right:1px solid var(--line);
+    }
+    #toolbar .tool-group{
+      flex-direction:column;
+      align-items:stretch;
+    }
+    #actions{
+      flex-wrap:wrap;
+      max-height:30vh;
+      overflow-y:auto;
+    }
+    #hint{ font-size:10px; bottom:6px; }
+  }
+
+  /* ===== 상단 툴바 ===== */
+  #toolbar{
+    display:flex; flex-wrap:wrap; gap:6px; align-items:center;
+    padding:10px 12px; padding-top:max(10px, env(safe-area-inset-top));
+    background:var(--panel);
+    border-bottom:1px solid var(--line);
+    z-index:20;
+  }
+  .tool-group{ display:flex; gap:4px; align-items:center; flex-wrap:wrap; }
+  .tool-label{ font-size:10px; color:var(--dim); letter-spacing:1px; margin-right:2px; }
+  button, .btn{
+    font-family:'Orbitron', sans-serif;
+    font-size:11px; font-weight:700;
+    border:1px solid rgba(255,255,255,0.18);
+    background:rgba(255,255,255,0.06);
+    color:var(--text);
+    border-radius:8px;
+    padding:7px 10px;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  button:active, .btn:active{ background:rgba(63,224,255,0.2); }
+  button.active{
+    border-color:var(--accent);
+    background:rgba(63,224,255,0.18);
+    color:var(--accent);
+  }
+  button.danger{ border-color:rgba(255,61,129,0.4); color:#ff3d81; }
+  input[type="number"]{
+    width:56px; padding:6px 6px;
+    border-radius:8px; border:1px solid rgba(255,255,255,0.18);
+    background:rgba(0,0,0,0.35); color:var(--text);
+    font-family:'Orbitron', sans-serif; font-size:12px;
+  }
+  #status{
+    font-size:11px; color:var(--dim);
+    margin-left:auto;
+  }
+
+  /* ===== 에디터 캔버스 영역 ===== */
+  #editor-wrap{
+    position:relative;
+    overflow:hidden;
+    background:linear-gradient(180deg, #08061a 0%, #06040e 100%);
+  }
+  #editor{
+    display:block;
+    width:100%;
+    height:100%;
+    touch-action:none;
+    cursor:crosshair;
+  }
+  #hint{
+    position:absolute; left:50%; bottom:12px; transform:translateX(-50%);
+    font-size:11px; color:var(--dim); text-align:center;
+    pointer-events:none; line-height:1.5;
+    background:rgba(0,0,0,0.45); padding:6px 12px; border-radius:10px;
+  }
+
+  /* ===== 하단 액션 ===== */
+  #actions{
+    display:flex; gap:8px; flex-wrap:wrap;
+    padding:10px 12px; padding-bottom:max(10px, env(safe-area-inset-bottom));
+    background:var(--panel);
+    border-top:1px solid var(--line);
+  }
+  #actions button{ flex:1; min-width:80px; padding:10px 8px; }
+  #actions .primary{
+    background:linear-gradient(135deg, rgba(63,224,255,0.25), rgba(154,77,255,0.25));
+    border-color:rgba(63,224,255,0.45);
+  }
+
+  /* ===== 플레이 오버레이 ===== */
+  #play-overlay{
+    position:fixed; inset:0; z-index:50;
+    background:var(--bg);
+    display:none;
+    flex-direction:column;
+  }
+  #play-overlay.show{ display:flex; }
+  #play-hud{
+    display:flex; justify-content:space-between; padding:10px 14px;
+    font-family:'Orbitron', sans-serif; font-size:13px;
+  }
+  #play-hud span{ color:var(--accent); }
+  #play-canvas-wrap{ flex:1; position:relative; min-height:0; }
+  canvas{ touch-action:none; }
+  #play-canvas{ width:100%; height:100%; display:block; }
+  #play-bar{
+    display:flex; gap:8px; padding:10px 12px; background:var(--panel);
+  }
+  #play-bar button{ flex:1; padding:12px; }
+
+  /* ===== 모달 ===== */
+  .modal{
+    position:fixed; inset:0; z-index:60;
+    background:rgba(0,0,0,0.7);
+    display:none; align-items:center; justify-content:center;
+    padding:16px;
+  }
+  .modal.show{ display:flex; }
+  .modal-box{
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:16px; padding:16px; width:100%; max-width:420px;
+    max-height:80vh; display:flex; flex-direction:column; gap:10px;
+  }
+  .modal-box h2{
+    font-family:'Orbitron', sans-serif; font-size:16px; color:var(--accent);
+  }
+  textarea{
+    width:100%; min-height:160px; resize:vertical;
+    background:rgba(0,0,0,0.4); color:var(--text);
+    border:1px solid var(--line); border-radius:10px;
+    padding:10px; font-family:monospace; font-size:11px;
+  }
+  .modal-actions{ display:flex; gap:8px; }
+  .modal-actions button{ flex:1; }
+
+/* ===== song list / help modal (originally a second inline <style> block) ===== */
+  .song-item{
+    display:flex; align-items:center; gap:8px;
+    padding:10px 12px; border-radius:10px;
+    border:1px solid rgba(255,255,255,0.12);
+    background:rgba(0,0,0,0.25);
+  }
+  .song-item .meta{ flex:1; min-width:0; }
+  .song-item .name{
+    font-size:13px; font-weight:600;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .song-item .sub{ font-size:11px; color:var(--dim); margin-top:2px; }
+  .song-item button{ padding:6px 10px; font-size:11px; }
+  .help-body{
+    max-height:55vh; overflow:auto;
+    font-size:13px; line-height:1.5;
+    padding-right:4px;
+  }
+  .help-body section{ margin-bottom:14px; }
+  .help-body h3{
+    font-family:'Orbitron', sans-serif;
+    font-size:13px; color:var(--accent);
+    margin-bottom:6px;
+  }
+  .help-body ul{ padding-left:18px; color:var(--text); }
+  .help-body li{ margin:4px 0; }
+  .help-body code{
+    font-size:11px; background:rgba(0,0,0,0.35);
+    padding:1px 6px; border-radius:4px;
+  }
+
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="toolbar">
+    <div class="tool-group">
+      <span class="tool-label">도구</span>
+      <button type="button" id="tool-tap" class="active" aria-pressed="true" title="탭 노트">탭</button>
+      <button type="button" id="tool-hold" aria-pressed="false" title="홀드 노트">홀드</button>
+      <button type="button" id="tool-slide" aria-pressed="false" title="슬라이드 노트 (레인을 가로질러 드래그)">슬라이드</button>
+      <button type="button" id="tool-speed" aria-pressed="false" title="속도 트리거 (중간 배속 변경)">속도</button>
+      <button type="button" id="tool-erase" aria-pressed="false" title="지우개">지우개</button>
+    </div>
+    <div class="tool-group">
+      <span class="tool-label">BPM</span>
+      <input type="number" id="bpm" value="176" min="60" max="300" step="1">
+    </div>
+    <div class="tool-group">
+      <span class="tool-label">마디</span>
+      <input type="number" id="bars" value="16" min="4" max="64" step="1">
+    </div>
+    <div class="tool-group">
+      <span class="tool-label">스냅</span>
+      <button type="button" id="snap-4" class="active" aria-pressed="true">1/4</button>
+      <button type="button" id="snap-8" aria-pressed="false">1/8</button>
+      <button type="button" id="snap-16" aria-pressed="false">1/16</button>
+    </div>
+    <div class="tool-group">
+      <span class="tool-label">스크롤</span>
+      <button type="button" id="scroll-up" title="위로">▲</button>
+      <button type="button" id="scroll-down" title="아래로">▼</button>
+    </div>
+    <div class="tool-group">
+      <span class="tool-label">속도</span>
+      <button type="button" id="speed-minus" title="느리게">−</button>
+      <span id="speed-label" style="font-family:Orbitron,sans-serif;font-size:12px;color:var(--accent);min-width:44px;text-align:center;">1.00×</span>
+      <button type="button" id="speed-plus" title="빠르게">+</button>
+    </div>
+    <div class="tool-group">
+      <span class="tool-label">Song</span>
+      <button type="button" id="btn-song-lib" title="브라우저에 저장된 곡 선택">음악 선택</button>
+      <button type="button" id="btn-song-clear" title="음악 제거">×</button>
+      <span id="song-label" style="font-size:11px;color:var(--dim);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">없음</span>
+      <input type="file" id="song-file" accept="audio/*,.mp3,.ogg,.wav,.m4a" hidden>
+    </div>
+    <div class="tool-group" style="margin-left:auto;">
+      <span class="tool-label">저사양</span>
+      <button type="button" id="btn-low-detail" aria-pressed="false" title="이펙트·해상도 축소로 랙 완화">OFF</button>
+    </div>
+    <span id="status">노트 0</span>
+  </div>
+
+  <div id="editor-wrap">
+    <canvas id="editor" role="img" aria-label="채보 편집 캔버스"></canvas>
+    <div id="hint">
+      탭/홀드 배치 · 우클릭 삭제<br>
+      스크롤: 휠 · ▲▼ · Space+드래그 · 두 손가락<br>
+      노트 간격은 속도 설정과 무관하게 고정
+    </div>
+  </div>
+
+  <div id="actions">
+    <button type="button" id="btn-play" class="primary">▶ 테스트</button>
+    <button type="button" id="btn-undo" title="Ctrl+Z">실행취소</button>
+    <button type="button" id="btn-save">저장</button>
+    <button type="button" id="btn-to-game">게임으로</button>
+    <button type="button" id="btn-load">불러오기</button>
+    <button type="button" id="btn-export">내보내기</button>
+    <button type="button" id="btn-import">가져오기</button>
+    <button type="button" id="btn-help" title="기능 설명">도움말</button>
+    <button type="button" id="btn-clear" class="danger">비우기</button>
+  </div>
+</div>
+
+<div id="play-overlay">
+  <div id="play-hud">
+    <div>점수 <span id="p-score">0</span></div>
+    <div>콤보 <span id="p-combo">0</span></div>
+    <div>정확도 <span id="p-acc">100%</span></div>
+    <div>속도 <span id="p-speed">1.00×</span></div>
+  </div>
+  <div id="play-canvas-wrap">
+    <canvas id="play-canvas"></canvas>
+    <div id="play-result" style="display:none;position:absolute;inset:0;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(6,4,14,0.82);text-align:center;font-family:'Orbitron',sans-serif;">
+      <div style="font-size:22px;font-weight:900;color:var(--accent);">테스트 종료</div>
+      <div style="font-size:30px;font-weight:900;" id="r-score">0</div>
+      <div style="font-size:13px;color:var(--dim);line-height:1.8;">
+        정확도 <span id="r-acc">0%</span> · 최고 콤보 <span id="r-combo">0</span><br>
+        성공 <span id="r-hits">0</span> / 판정 <span id="r-judged">0</span>
+      </div>
+      <button type="button" id="btn-replay" class="primary" style="margin-top:10px;padding:12px 28px;">다시 테스트</button>
+    </div>
+  </div>
+  <div id="play-bar">
+    <button type="button" id="btn-stop">편집으로</button>
+  </div>
+</div>
+
+<div class="modal" id="io-modal">
+  <div class="modal-box">
+    <h2 id="io-title">차트 JSON</h2>
+    <textarea id="io-text" spellcheck="false"></textarea>
+    <div class="modal-actions">
+      <button type="button" id="io-cancel">닫기</button>
+      <button type="button" id="io-ok" class="primary">확인</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="song-modal">
+  <div class="modal-box">
+    <h2>음악 선택 (브라우저)</h2>
+    <p style="font-size:12px;color:var(--dim);line-height:1.45;">
+      브라우저에 저장된 곡 목록입니다. <b>선택</b>하면 바로 사용합니다.<br>
+      처음이거나 새 곡이면 아래 <b>기기에서 추가</b>로 한 번만 넣으면 됩니다.
+    </p>
+    <div id="song-list" style="max-height:40vh;overflow:auto;display:flex;flex-direction:column;gap:6px;margin:8px 0;"></div>
+    <div class="modal-actions">
+      <button type="button" id="song-modal-close">닫기</button>
+      <button type="button" id="song-modal-file" class="primary">기기에서 추가</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="help-modal">
+  <div class="modal-box" style="max-width:480px;">
+    <h2>에디터 도움말</h2>
+    <div class="help-body" id="help-body">
+      <section>
+        <h3>기본 조작</h3>
+        <ul>
+          <li><b>탭</b> — 클릭으로 단타 배치/제거</li>
+          <li><b>홀드</b> — 드래그로 길이 지정</li>
+          <li><b>지우개</b> · 우클릭 — 노트 삭제</li>
+          <li><b>스냅</b> — 1/4 · 1/8 · 1/16 박 단위로 붙임</li>
+          <li><b>스크롤</b> — 휠, ▲▼, Space+드래그, 두 손가락</li>
+          <li><b>실행취소</b> — 버튼 또는 Ctrl+Z</li>
+        </ul>
+      </section>
+      <section>
+        <h3>BPM · 길이 · 속도</h3>
+        <ul>
+          <li><b>BPM</b> — 곡 템포. 노트 시간 계산에 사용</li>
+          <li><b>박(마디)</b> — 차트 전체 길이 (1마디 = 4박)</li>
+          <li><b>속도</b> — 기본 노트 낙하 배율 (툴바 −/+)</li>
+          <li><b>속도 도구</b> — 타임라인 클릭으로 <b>중간 배속 트리거</b> 배치 (노란 점선)</li>
+          <li>트리거 배율 = 배치 순간 툴바 속도. 같은 위치 재클릭 시 갱신/삭제</li>
+          <li>테스트·본 게임에서 해당 박부터 낙하 속도 변경</li>
+        </ul>
+      </section>
+      <section>
+        <h3>음악 (Song ID)</h3>
+        <ul>
+          <li><b>음악 선택</b> — 브라우저에 저장된 곡 목록</li>
+          <li>처음 곡은 <b>기기에서 추가</b>로 한 번만 넣으면 됨</li>
+          <li>채보에는 Song ID·이름·길이만 저장 (용량 작음)</li>
+          <li>실제 음원은 브라우저 IndexedDB에 보관</li>
+          <li>file://로 파일을 따로 열면 저장소가 갈라질 수 있음 → 같은 브라우저·「게임으로」 권장</li>
+        </ul>
+      </section>
+      <section>
+        <h3>저장 · 공유 · 게임</h3>
+        <ul>
+          <li><b>저장</b> — 이 브라우저에 채보 저장</li>
+          <li><b>게임으로</b> — 채보를 넘기며 본 게임 실행 (해시로 전달)</li>
+          <li><b>내보내기</b> — 압축 코드 / JSON 복사</li>
+          <li><b>가져오기</b> — 코드 붙여넣기</li>
+          <li>압축 예: <code>1.30-2-0@0,1@1:2|176|16</code></li>
+        </ul>
+      </section>
+      <section>
+        <h3>규칙 (불가능한 패턴)</h3>
+        <ul>
+          <li>같은 레인에서 노트·홀드가 시간상 겹치면 배치 불가</li>
+          <li>홀드 몸통 위에 다른 노트 올리기 불가</li>
+          <li>끝점만 맞닿는 연속 배치는 허용</li>
+        </ul>
+      </section>
+      <section>
+        <h3>테스트 플레이</h3>
+        <ul>
+          <li>키 <b>D F J K</b> 또는 화면 터치</li>
+          <li>연결된 음악이 있으면 준비 시간 후 재생</li>
+          <li>판정 창·홀드/슬라이드 점수 공식은 본 게임과 동일</li>
+        </ul>
+      </section>
+    </div>
+    <div class="modal-actions">
+      <button type="button" id="help-close" class="primary">닫기</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== js/shared/storage.js (generated by build.js — do not edit directly) =====
+// storage.js — shared safe localStorage/sessionStorage access.
+// 일부 브라우저의 프라이빗 모드·차단된 저장소 설정·특정 file:// 환경에서는
+// localStorage 호출 자체가 예외를 던질 수 있다. 이 스크립트는 최상단에서
+// 곧바로 localStorage를 읽으므로, 그 예외를 잡지 않으면 이후 코드가 전혀
+// 실행되지 않아 게임/에디터가 통째로 먹통이 된다. 모든 접근을 이 헬퍼로
+// 감싸서 그런 환경에서도 "설정 저장만 안 될 뿐" 앱 자체는 항상 뜨도록 한다.
+// window.localStorage/sessionStorage 자체를 "읽는" 시점에 예외가 나는 샌드박스도
+// 있으므로, 프로퍼티 접근까지 통째로 try 안에서 매번 새로 수행한다.
+function makeSafeStorage(kind){
+  return {
+    get(key, fallback){
+      try{ const v = window[kind].getItem(key); return v == null ? fallback : v; }
+      catch(_){ return fallback; }
+    },
+    set(key, value){
+      try{ window[kind].setItem(key, value); return true; }
+      catch(_){ return false; }
+    }
+  };
+}
+
+// ===== js/shared/song-db.js (generated by build.js — do not edit directly) =====
+// song-db.js — shared IndexedDB blob storage for uploaded songs.
+// GD식 Song ID: 채보에는 id/메타만, 오디오 바이너리는 IndexedDB.
+const SONG_DB_NAME = 'neonBeatSongDB';
+const SONG_STORE = 'songs';
+
+function openSongDB(){
+  return new Promise((resolve, reject)=>{
+    const req = indexedDB.open(SONG_DB_NAME, 1);
+    req.onupgradeneeded = ()=>{
+      const db = req.result;
+      if(!db.objectStoreNames.contains(SONG_STORE)){
+        db.createObjectStore(SONG_STORE, { keyPath: 'id' });
+      }
+    };
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror = ()=> reject(req.error);
+  });
+}
+
+// 에디터의 곡 업로드 흐름에서만 쓰이지만, idbSaveSong이 이 모듈에 있으므로 함께 둔다.
+function getAudioDuration(file){
+  return new Promise((resolve)=>{
+    const url = URL.createObjectURL(file);
+    const a = new Audio();
+    let done = false;
+    let timer = 0;
+    const finish = (d)=>{
+      if(done) return; done = true; clearTimeout(timer);
+      try{ URL.revokeObjectURL(url); }catch(_){}
+      resolve(d);
+    };
+    // iOS 등에서 loadedmetadata가 끝내 오지 않아 업로드가 멈추는 것을 방지
+    timer = setTimeout(()=> finish(0), 4000);
+    a.preload = 'metadata';
+    a.onloadedmetadata = ()=> finish(isFinite(a.duration) ? a.duration : 0);
+    a.onerror = ()=> finish(0);
+    a.src = url;
+  });
+}
+
+async function idbSaveSong(file){
+  const id = 's_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+  const duration = await getAudioDuration(file);
+  const record = {
+    id,
+    name: file.name || 'song',
+    mime: file.type || 'audio/mpeg',
+    blob: file,
+    duration,
+    addedAt: Date.now()
+  };
+  const db = await openSongDB();
+  await new Promise((resolve, reject)=>{
+    const tx = db.transaction(SONG_STORE, 'readwrite');
+    tx.objectStore(SONG_STORE).put(record);
+    tx.oncomplete = ()=> resolve();
+    tx.onerror = ()=> reject(tx.error);
+  });
+  db.close();
+  return { id, name: record.name, duration };
+}
+
+async function idbGetSong(id){
+  if(!id) return null;
+  const db = await openSongDB();
+  const row = await new Promise((resolve, reject)=>{
+    const tx = db.transaction(SONG_STORE, 'readonly');
+    const req = tx.objectStore(SONG_STORE).get(id);
+    req.onsuccess = ()=> resolve(req.result || null);
+    req.onerror = ()=> reject(req.error);
+  });
+  db.close();
+  return row;
+}
+
+async function idbListSongs(){
+  const db = await openSongDB();
+  const rows = await new Promise((resolve, reject)=>{
+    const tx = db.transaction(SONG_STORE, 'readonly');
+    const req = tx.objectStore(SONG_STORE).getAll();
+    req.onsuccess = ()=> resolve(req.result || []);
+    req.onerror = ()=> reject(req.error);
+  });
+  db.close();
+  return rows.sort((a,b)=> (b.addedAt||0) - (a.addedAt||0));
+}
+
+async function idbDeleteSong(id){
+  const db = await openSongDB();
+  await new Promise((resolve, reject)=>{
+    const tx = db.transaction(SONG_STORE, 'readwrite');
+    tx.objectStore(SONG_STORE).delete(id);
+    tx.oncomplete = ()=> resolve();
+    tx.onerror = ()=> reject(tx.error);
+  });
+  db.close();
+}
+
+// ===== js/shared/chart-format.js (generated by build.js — do not edit directly) =====
+// chart-format.js — shared chart text codec, used by both game.html (read-only)
+// and editor.html (read + write).
+// 압축 예: 1.30-4-0@0,1@0.5,2@1:1.5,3@2|176|16
+
+// 단일 버전 필드. 예전엔 컴팩트 문자열에서 만든 데이터는 항상 version:3,
+// 에디터가 저장하는 JSON은 항상 version:4로 서로 다른 값을 하드코딩해서
+// "버전"이 실제로는 아무것도 검증하지 않는 장식용 숫자였다 (report 2.7).
+// 이제 둘 다 이 상수를 쓰고, JSON을 파싱할 때는 이 값보다 새로운 버전이면
+// (미래의 이 코드가 모르는 형식일 수 있으므로) 명확히 에러를 낸다.
+// v5: 슬라이드 노트(note.slide = [{lane,t}, ...]) 추가.
+const CHART_FORMAT_VERSION = 5;
+
+/**
+ * Parse a chart text string (compact format or raw JSON) into a chart data object.
+ * @param {string} text
+ * @param {object} [opts]
+ * @param {number} [opts.bpm] fallback bpm when the compact string omits it (default 176)
+ * @param {number} [opts.bars] fallback bar count when the compact string omits it (default 16)
+ * @param {boolean} [opts.strict] if true, throw on a malformed note token instead of
+ *   silently dropping it, and require JSON input to already contain a `notes` array.
+ *   The editor uses strict:true (better feedback while authoring); the game uses the
+ *   lenient default (best-effort playback of whatever chart text it's given).
+ */
+function parseChartText(text, opts){
+  opts = opts || {};
+  const fallbackBpm = opts.bpm != null ? opts.bpm : 176;
+  const fallbackBars = opts.bars != null ? opts.bars : 16;
+  const strict = !!opts.strict;
+
+  text = String(text).trim();
+  if(!text) throw new Error('빈 텍스트');
+
+  // JSON
+  if(text[0] === '{'){
+    let data;
+    try{ data = JSON.parse(text); }
+    catch(err){ throw new Error('JSON 파싱 실패: '+err.message); }
+    if(strict && !data.notes) throw new Error('notes 없음 (JSON에 "notes" 배열이 있어야 합니다)');
+    if(data.version != null && Number(data.version) > CHART_FORMAT_VERSION){
+      throw new Error('지원하지 않는 차트 버전: v'+data.version+' (이 코드가 지원하는 최대 버전은 v'+CHART_FORMAT_VERSION+')');
+    }
+    return data;
+  }
+
+  // compact: speed-count-notes|bpm|bars
+  // notes: lane@beat 또는 lane@beat:hold, 쉼표 구분.
+  // 슬라이드 노트: lane@beat 뒤에 ~lane@beat 를 이어 붙여 체인을 표현
+  // (예: 0@4~1@4.25~2@4.5 — 0번 레인에서 시작해 1→2번 레인으로 이어짐).
+  const main = text.split('|');
+  const m = main[0].match(/^([\d.]+)-(\d+)-(.*)$/);
+  if(!m){
+    throw new Error(
+      '첫 구간 형식이 "속도-개수-좌표"가 아닙니다: "'+main[0]+'"  '
+      + '(예: 1.30-2-0@0,1@1:2|176|16)'
+    );
+  }
+  const speed = parseFloat(m[1]);
+  if(!isFinite(speed)) throw new Error('속도 값이 숫자가 아닙니다: "'+m[1]+'"');
+  const declaredCount = parseInt(m[2], 10);
+  const body = m[3] || '';
+  const badTokens = [];
+  const notes = body ? body.split(',').map((tok, idx)=>{
+    const raw = tok.trim();
+    if(!raw) return null;
+    const chainParts = raw.split('~');
+    const headRaw = chainParts[0];
+    const segs = headRaw.split(':');
+    const at = segs[0].split('@');
+    if(at.length < 2 || at[0] === '' || at[1] === ''){
+      badTokens.push('#'+(idx+1)+' "'+raw+'" (lane@beat 형식이어야 함)');
+      if(strict) throw new Error('노트 '+(idx+1)+'번째 좌표 형식이 잘못됨: "'+raw+'" (lane@beat 필요, 예: 2@4)');
+      return null;
+    }
+    const lane = parseInt(at[0], 10);
+    const t = parseFloat(at[1]);
+    if(!isFinite(lane) || lane < 0 || lane > 3 || !isFinite(t)){
+      badTokens.push('#'+(idx+1)+' "'+raw+'" (lane은 0-3, beat는 숫자)');
+      if(strict) throw new Error('노트 '+(idx+1)+'번째 값이 잘못됨: "'+raw+'" (lane 0-3, beat는 숫자)');
+      return null;
+    }
+    const n = { lane, t };
+    if(segs[1] != null && segs[1] !== ''){
+      const hold = parseFloat(segs[1]);
+      if(isFinite(hold) && hold > 0) n.hold = hold;
+    }
+    if(chainParts.length > 1){
+      const slide = [];
+      let prevT = t;
+      let chainOk = true;
+      for(let ci=1; ci<chainParts.length; ci++){
+        const craw = chainParts[ci].trim();
+        const cat = craw.split('@');
+        const clane = cat.length >= 2 ? parseInt(cat[0], 10) : NaN;
+        const ct = cat.length >= 2 ? parseFloat(cat[1]) : NaN;
+        if(!isFinite(clane) || clane < 0 || clane > 3 || !isFinite(ct) || ct <= prevT){
+          badTokens.push('#'+(idx+1)+' 슬라이드 지점 "'+craw+'" (lane@beat, 시간은 항상 증가해야 함)');
+          if(strict) throw new Error('노트 '+(idx+1)+'번째 슬라이드 지점이 잘못됨: "'+craw+'" (lane@beat, 이전 지점보다 늦은 박이어야 함)');
+          chainOk = false;
+          break;
+        }
+        slide.push({ lane: clane, t: ct });
+        prevT = ct;
+      }
+      if(chainOk && slide.length) n.slide = slide;
+    }
+    return n;
+  }).filter(Boolean) : [];
+  if(strict && isFinite(declaredCount) && declaredCount !== notes.length){
+    // 개수 필드는 지금까지 아무 데도 안 쓰여서 오탈자를 조용히 통과시켰다 (report 2.7).
+    // strict(에디터)에서는 실제 파싱된 노트 수와 다르면 바로 알려준다.
+    throw new Error('선언된 노트 개수('+declaredCount+')와 실제 파싱된 노트 수('+notes.length+')가 다릅니다.');
+  }
+  const data = {
+    version: CHART_FORMAT_VERSION,
+    speed: isFinite(speed) ? speed : 1,
+    bpm: (main[1] != null && isFinite(parseFloat(main[1]))) ? parseFloat(main[1]) : fallbackBpm,
+    bars: (main[2] != null && isFinite(parseInt(main[2],10))) ? parseInt(main[2],10) : fallbackBars,
+    notes
+  };
+  for(let i=3;i<main.length;i++){
+    const p = main[i];
+    if(p.indexOf('s:')===0) data.songId = p.slice(2);
+    else if(p.indexOf('n:')===0){
+      try{ data.songName = decodeURIComponent(p.slice(2)); }
+      catch(err){
+        if(strict) throw new Error('songName(n:) URL 디코딩 실패: '+err.message);
+        data.songName = p.slice(2);
+      }
+    }
+    else if(p.indexOf('d:')===0) data.songDuration = parseFloat(p.slice(2));
+    else if(p.indexOf('v:')===0){
+      data.speedTriggers = p.slice(2).split(',').map(tok=>{
+        const parts = tok.trim().split('@');
+        if(parts.length < 2) return null;
+        return { t: parseFloat(parts[0]), rate: parseFloat(parts[1]) };
+      }).filter(tr => tr && isFinite(tr.t) && isFinite(tr.rate));
+    }
+    else if(strict){
+      throw new Error('알 수 없는 구간: "'+p+'" (s:/n:/d:/v: 중 하나로 시작해야 함)');
+    }
+  }
+  return data;
+}
+
+/**
+ * Encode a chart data object into the compact text format.
+ * Editor-only in practice (the game never writes charts), but lives here since
+ * it's the inverse of parseChartText and both belong to the same codec.
+ * @param {object} data
+ * @param {number} [fallbackSpeed] used when data.speed is not set
+ * @param {number} [fallbackBpm] used when data.bpm is not set
+ * @param {number} [fallbackBars] used when data.bars is not set
+ */
+function encodeCompact(data, fallbackSpeed, fallbackBpm, fallbackBars){
+  const s = (data.speed != null ? data.speed : fallbackSpeed).toFixed(2);
+  const ns = (data.notes || []).map(n=>{
+    const t = Math.round(Number(n.t)*1000)/1000;
+    let tok = n.lane + '@' + t;
+    if(n.hold) tok += ':' + (Math.round(Number(n.hold)*1000)/1000);
+    if(Array.isArray(n.slide)){
+      for(const wp of n.slide){
+        const wt = Math.round(Number(wp.t)*1000)/1000;
+        tok += '~' + wp.lane + '@' + wt;
+      }
+    }
+    return tok;
+  });
+  let out = s + '-' + ns.length + '-' + ns.join(',') + '|' + (data.bpm||fallbackBpm) + '|' + (data.bars||fallbackBars);
+  if(data.songId){
+    out += '|s:' + data.songId;
+    if(data.songName) out += '|n:' + encodeURIComponent(data.songName);
+    if(data.songDuration) out += '|d:' + Number(data.songDuration).toFixed(2);
+  }
+  if(data.speedTriggers && data.speedTriggers.length){
+    const vs = data.speedTriggers.map(tr=>{
+      const t = Math.round(Number(tr.t)*1000)/1000;
+      const r = Math.round(Number(tr.rate)*100)/100;
+      return t + '@' + r;
+    }).join(',');
+    out += '|v:' + vs;
+  }
+  return out;
+}
+
+/** 겹침 제거·정리 (가져오기용) */
+function sanitizeNotes(list){
+  const out = [];
+  const sorted = (list || []).slice().sort((a,b)=> a.t - b.t || a.lane - b.lane);
+  for(const n of sorted){
+    const lane = n.lane|0;
+    if(lane < 0 || lane > 3) continue;
+    const t = Number(n.t);
+    if(!isFinite(t) || t < 0) continue;
+    let hold = n.hold ? Number(n.hold) : 0;
+    if(!isFinite(hold) || hold < 0) hold = 0;
+    let ok = true;
+    for(const o of out){
+      if(o.lane !== lane) continue;
+      if(Math.abs(t - o.t) < 1e-9){ ok = false; break; }   // 같은 레인·같은 시각 중복 제거
+      const b1 = t + hold, b2 = o.t + (o.hold || 0);
+      if(t < b2 - 1e-9 && o.t < b1 - 1e-9){ ok = false; break; }
+    }
+    if(!ok) continue;
+    const obj = hold > 0 ? { t, lane, hold } : { t, lane };
+    // 슬라이드 체인: 각 지점은 lane 0-3, 시간은 항상 이전 지점보다 뒤여야
+    // 한다 (역행/제자리는 드롭). 유효한 지점이 하나도 안 남으면 그냥 일반
+    // 탭 노트로 취급한다.
+    if(Array.isArray(n.slide) && n.slide.length){
+      let prevT = t;
+      const chain = [];
+      for(const wp of n.slide){
+        if(!wp) continue;
+        const wl = wp.lane|0;
+        const wt = Number(wp.t);
+        if(wl < 0 || wl > 3 || !isFinite(wt) || wt <= prevT + 1e-9) continue;
+        chain.push({ lane: wl, t: wt });
+        prevT = wt;
+      }
+      if(chain.length) obj.slide = chain;
+    }
+    out.push(obj);
+  }
+  return out;
+}
+
+// ===== js/shared/speed-scroll.js (generated by build.js — do not edit directly) =====
+// speed-scroll.js — shared "scroll-time integration" for speed-change triggers.
+// ===== 속도 트리거용 스크롤-시간 적분 =====
+// 노트 위치를 "지금 속도 × 남은시간"으로 근사하면, 속도가 바뀌는 순간
+// 화면 위 노트마다 남은시간이 달라서 서로 다른 비율로 튀어 간격이 일그러진다.
+// 대신 시간 t까지 누적된 "스크롤량(rate를 시간에 대해 적분한 값)"을 구간별로
+// 미리 계산해두고, 각 노트는 자신의 hitTime에 해당하는 스크롤값을 스폰 시 한 번만
+// 캐싱한다. 그러면 트리거 순간에도 위치가 끊기지 않고 이어지며(연속),
+// 노트 사이의 상대적 간격이 항상 정확하게 유지된다.
+//
+// Both the game and the editor's playtest mode need their own independent
+// timeline (they run at different times, sometimes concurrently in memory),
+// so this is a factory rather than a single shared module-level state.
+function createSpeedTimeline(){
+  // 속도 트리거 = '속도(rate)'만 RAMP_MS 동안 ease-in-out으로 바꾼다. 위치는 속도를 시간에 대해
+  // 적분한 값(스크롤량)으로 계산하므로, 모든 노트가 "지금 속도"로 움직일 뿐 이미 있는 위치가
+  // 갑자기 늘거나 줄어들지 않는다 (위치·속도 모두 연속). 판정선 도착 시각은 hitTime과 일치.
+  const RAMP_MS = 500;
+  let segs = [{ t0: 0, a: 1, b: 1 }];   // t0에서 시작, a=시작 속도, b=목표 속도
+  let cum = [0];                         // 각 구간 시작 시점의 누적 스크롤량
+
+  function rateIn(seg, t){
+    const u = Math.min(1, Math.max(0, (t - seg.t0) / RAMP_MS));
+    return seg.a + (seg.b - seg.a) * (u * u * (3 - 2 * u));
+  }
+  // 구간 시작(t0)부터 t까지 속도의 적분. smoothstep의 적분: u^3 - u^4/2
+  function scrollIn(seg, t){
+    const dt = t - seg.t0;
+    if(dt < 0) return seg.a * dt;
+    if(dt >= RAMP_MS) return RAMP_MS * (seg.a + (seg.b - seg.a) / 2) + seg.b * (dt - RAMP_MS);
+    const u = dt / RAMP_MS;
+    return RAMP_MS * (seg.a * u + (seg.b - seg.a) * (u * u * u - u * u * u * u / 2));
+  }
+
+  function build(startRate, triggers){
+    segs = [{ t0: 0, a: startRate, b: startRate }];
+    let lastTarget = startRate;
+    for(const tr of (triggers || [])){
+      const t0 = Number(tr.t);
+      const rate = Math.max(0.75, Math.min(2, Number(tr.rate) || 1));
+      if(!isFinite(t0) || t0 < 0) continue;
+      if(Math.abs(rate - lastTarget) < 1e-6) continue;
+      const prev = segs[segs.length-1];
+      if(Math.abs(prev.t0 - t0) < 1e-6){
+        prev.b = rate;
+      } else {
+        segs.push({ t0, a: rateIn(prev, t0), b: rate });   // 이징 도중에 새 트리거가 와도 현재 속도에서 이어짐
+      }
+      lastTarget = rate;
+    }
+    cum = [0];
+    for(let i = 1; i < segs.length; i++){
+      cum[i] = cum[i-1] + scrollIn(segs[i-1], segs[i].t0);
+    }
+  }
+
+  // 스캐너를 여러 개로 분리: 노트 스폰용(미래, 오름차순) / 현재 시간용(단조 증가) 등
+  function makeScroller(){
+    let idx = 0;
+    return function(t){
+      let i = Math.min(idx, segs.length - 1);
+      while(i > 0 && segs[i].t0 > t) i--;
+      while(i < segs.length - 1 && segs[i+1].t0 <= t) i++;
+      idx = i;
+      return cum[i] + scrollIn(segs[i], t);
+    };
+  }
+
+  return { build, makeScroller };
+}
+
+// ===== js/shared/canvas-utils.js (generated by build.js — do not edit directly) =====
+// canvas-utils.js — shared canvas drawing helpers, identical in both apps.
+
+const LANE_COLORS = ['#ff3d81','#ffd23f','#3fe0ff','#9a4dff'];
+const LANE_COLORS_DIM = LANE_COLORS.map(c => c + '66');
+const LANE_COLORS_HOLD = LANE_COLORS.map(c => c + 'aa');
+
+function roundRect(ctx, x, y, w, h, r){
+  if(h < 0){ y += h; h = -h; }
+  r = Math.min(r, w/2, Math.max(h/2, 0.1));
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.arcTo(x+w, y, x+w, y+h, r);
+  ctx.arcTo(x+w, y+h, x, y+h, r);
+  ctx.arcTo(x, y+h, x, y, r);
+  ctx.arcTo(x, y, x+w, y, r);
+  ctx.closePath();
+}
+
+// 슬라이드 노트 몸통:
+// - 기본(Y 우세): 레인 폭 사다리꼴 리본 (기존)
+// - X≫Y (거의 수평): 경로에 수직인 일정 폭 리본 + 평행 가장 (PERFECT DESIGN)
+// pts: 헤드→테일 좌표. segColors[i]: { fill, edge, highlight, glow?, thick? }
+function slideIsXDominant(pts){
+  if(!pts || pts.length < 2) return false;
+  let sumDx = 0, sumDy = 0;
+  for(let i = 0; i < pts.length - 1; i++){
+    sumDx += Math.abs(pts[i+1].x - pts[i].x);
+    sumDy += Math.abs(pts[i+1].y - pts[i].y);
+  }
+  // X 변화가 Y의 약 1.6배 이상이면 수평 우세
+  return sumDx > Math.max(sumDy * 1.6, 8);
+}
+
+// 슬라이드 몸통·외곽선은 시작점(헤드) ~ 도착점(테일)을 잇는 "한 직선"이다.
+// 웨이포인트에서는 꺾이지 않고 색만 바뀐다. 이 함수가 중간 웨이포인트 점들을
+// 헤드→테일 직선 위로 옮겨 준다 (제자리 수정, 헤드·테일 점은 그대로).
+//  - 일반(Y 우세): 각 웨이포인트의 y(시간 위치)는 그대로 두고 x만 직선 위로 → 색 바뀌는 타이밍 유지
+//  - X우세(거의 수평): y가 거의 같아 y 보간이 불안정하므로 직선 위로 "정사영"
+// 그리기용 좌표만 바꾼다. 판정(레인/타이밍)에는 영향 없음.
+// chain 만든 직후, 몸통·외곽선·웨이포인트 마커를 그리기 전에 한 번 호출한다.
+function slideStraightChain(pts){
+  const N = pts ? pts.length : 0;
+  if(N < 3) return pts;
+  const a = pts[0], z = pts[N-1];
+  const dx = z.x - a.x, dy = z.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  const useY = Math.abs(dy) >= 1 && Math.abs(dx) <= Math.max(Math.abs(dy) * 1.6, 8);
+  for(let i = 1; i < N - 1; i++){
+    const p = pts[i];
+    if(useY){
+      p.x = a.x + dx * ((p.y - a.y) / dy);
+    } else if(len2 > 1e-6){
+      const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+      p.x = a.x + dx * t;
+      p.y = a.y + dy * t;
+    }
+  }
+  return pts;
+}
+
+// 슬라이드 직선은 "원래 전체 경로(헤드→테일)"로 한 번만 정해 고정한다.
+// 게임/플레이테스트는 웨이포인트를 지나면 앵커(헤드 자리)가 판정선으로 옮겨 가는데,
+// 남은 경로만으로 직선을 다시 만들면 웨이포인트마다 방향이 미세하게 바뀐다.
+// 그래서 full(전체 경로, slideStraightChain 처리 후)에서 직선은 그대로 두고
+// 남은 부분만 잘라 쓴다. anchored면 헤드 자리는 "직선 위 y=anchorY 지점"이 된다.
+// full = [헤드, wp0, wp1, ... 테일]
+function slideRemainingChain(full, slideIdx, anchored, anchorY){
+  const a = full[0], z = full[full.length - 1];
+  let head = a;
+  if(anchored){
+    const dy = z.y - a.y;
+    if(Math.abs(dy) >= 1){
+      const t = Math.min(1, Math.max(0, (anchorY - a.y) / dy));
+      head = { x: a.x + (z.x - a.x) * t, y: anchorY };
+    } else {
+      // 거의 수평: 마지막으로 지난 웨이포인트 위치를 앵커로
+      head = { x: full[Math.min(slideIdx, full.length - 1)].x, y: anchorY };
+    }
+  }
+  return [head].concat(full.slice(slideIdx + 1));
+}
+
+// ════════════════════════════════════════════════════════════════
+// ★ 슬라이드 노트 디자인 규칙 (게임·에디터 공통 — 변경 시 반드시 지킬 것)
+//
+//  1) 몸통(body)은 외곽선(outline)과 "같은 방식"으로 그린다.
+//     - 기하(끝점·폭)는 slideGeometry() 한 곳에서만 계산하고,
+//       drawSlideBody()와 drawSlideOutline()이 똑같이 그것을 쓴다.
+//     - 몸통만의 별도 모양/끝점/리본 같은 특수 케이스를 만들지 않는다.
+//       (예전의 drawSlideBodyRibbon 같은 별도 몸통 방식은 제거됨 — 되살리지 말 것)
+//
+//  2) 슬라이드 노트의 모든 부분은 같은 디자인을 쓴다.
+//     - 첫 구간(또는 다음 구간·마지막 구간)만 glow를 넣거나, 더 굵게/밝게 하는 등
+//       구간별 특별 처리를 하지 않는다. 예: "첫 부분에만 glow" 금지.
+//     - 모든 구간(fill, edge, highlight, glow, thickness 등)은
+//       slideSegStyle()이 돌려주는 동일한 스타일로 그린다.
+//       색은 구간의 도착 레인 색(데이터)만 다를 수 있다.
+//     - drawSlideBody/drawSlideOutline 안에서 구간 인덱스(i === 0 등)로
+//       스타일을 갈라 쓰지 않는다.
+//
+//  3) 몸통과 외곽선은 직선 선분만 쓴다 (STRAIGHT ONLY).
+//     - 구간마다 연속한 두 점 사이를 moveTo/lineTo로만 잇는다.
+//       arc / arcTo / quadraticCurveTo / bezierCurveTo / 경로 스무딩 금지.
+//     - 선 끝은 butt, 이음은 miter로 둬서 끝이 둥글게 번지지 않게 한다.
+//       (둥근 모양은 캡(헤드/테일)의 테두리 slideCapPath에만 허용)
+//
+//  4) 몸통과 외곽선은 시작점~도착점을 잇는 "정확히 한 직선"이다.
+//     - 웨이포인트에서 경로가 꺾이지 않는다. 웨이포인트마다 바뀌는 것은 색(slideSegStyle의
+//       edge/fill 색)뿐이며, 색이 바뀌는 위치만 웨이포인트 지점이다.
+//     - 중간 점을 직선 위로 옮기는 일은 slideStraightChain() 한 곳에서만 한다.
+// ════════════════════════════════════════════════════════════════
+function slideSegStyle(headColor, destColor){
+  return {
+    fill: headColor + '99',
+    edge: destColor,
+    highlight: 'rgba(255,255,255,0.3)',
+    glow: null,
+    thick: false
+  };
+}
+
+// 몸통과 외곽선이 공유하는 기하 모델.
+//  - halfW: 몸통 반폭 (X우세(거의 수평)면 1.1배)
+//  - P: 경로 점들. 외곽선·몸통의 출발점/도착점은 "캡(slideCapRect / drawSlideCap)이 적용되는
+//      노트 위치" 기준으로 잡는다 — 캡 도형(headRect / tailRect)에서 직접 계산하므로
+//      캡 크기·모양이 바뀌어도 끝점이 항상 캡을 따라간다.
+//      시작점 = 헤드 캡 위치: 몸통 맞닿는 면에서 바깥쪽으로 SLIDE_START_FRAC (0.5 = 캡 중심)
+//      도착점 = 테일 캡 위치: 바깥 가장자리에서 몸통 쪽으로 SLIDE_END_FRAC (0.5 = 캡 중심)
+//      현재 1/3 / 2/3 — 두 끝 모두 "몸통과 맞닿는 면에서 캡 안쪽으로 1/3 지점"이다.
+//        · 헤드: 몸통 맞닿는 면에서 바깥쪽으로 1/3  (START_FRAC = 1/3)
+//        · 테일: 몸통 맞닿는 면에서 안쪽으로 1/3 = 바깥 가장자리에서 2/3  (END_FRAC = 2/3)
+//      (레퍼런스 이미지: 외곽선이 헤드·테일 캡과 만나는 지점 = 몸통 맞닿는 면에서 캡 높이의 1/3)
+//      (헤드가 아래·테일이 위인 화면 기준. 반대 화면은 dir로 자동 대응)
+//      끝점은 항상 한 직선(q→p) 위에서만 움직인다. 값은 이 두 상수만 바꾸면 되고,
+//      몸통·외곽선이 함께 따라간다.
+//      ★ 모든 구간 동일 디자인 — 첫/마지막 구간만 특별 처리 금지
+//  headRect / tailRect: 실제로 그려지는 캡의 {x,y,w,h,r} (안 그려지면 null → 끝점 연장 없음)
+//  ※ 위/아래 방향은 화면마다 반대다(게임: 헤드가 아래, 에디터: 헤드가 위). 아래 dir로 자동 대응.
+const SLIDE_START_FRAC = 1 / 3, SLIDE_END_FRAC = 2 / 3;
+// 양 끝을 안쪽(몸통 쪽)으로 줄이는 px 보정 — 외곽선 길이를 양쪽에서 이만큼씩 짧게 (0 = 줄임 없음. 이전 2px에서 풀어 양쪽 +2px 늘림)
+const SLIDE_TRIM_PX = 0;   // 정확히 1/3 지점에 두기 위해 px 보정 없음
+// 좌우 변마다 한쪽 끝만 바깥으로 늘리는 px (왼쪽 변: 테일 쪽, 오른쪽 변: 헤드 쪽). 외곽선에만 적용.
+const SLIDE_EDGE_EXTRA_PX = 0;   // 레퍼런스처럼 정확히 1/3 지점에서 만나도록 추가 연장 없음 (필요하면 1 등으로)
+function slideGeometry(pts, laneWidth, headRect, tailRect){
+  const N = pts.length;
+  const xDom = slideIsXDominant(pts);
+  const halfW = xDom ? (laneWidth - 8) / 2 * 1.1 : (laneWidth - 8) / 2;
+  // 끝점 연장: 항상 직선(q→p) 방향 "위에서만" 움직인다 (선 밖으로 벗어나면 웨이포인트에서
+  // 방향이 미세하게 틀어져 보임). 가파른 선은 y가 target에 정확히 닿고,
+  // 거의 수평인 선은 연장 길이를 |dy|의 2배로 제한해 x가 튀지 않게 한다.
+  const ext = (p, q, targetY) => {
+    const vx = p.x - q.x, vy = p.y - q.y, len = Math.hypot(vx, vy);
+    if(len < 1e-6) return { x: p.x, y: targetY };
+    const ux = vx / len, uy = vy / len, dy = targetY - p.y;
+    const d = Math.abs(uy) >= 0.5 ? dy / uy : (dy * uy >= 0 ? 1 : -1) * Math.abs(dy) * 2;
+    return { x: p.x + ux * d, y: p.y + uy * d };
+  };
+  const P = pts.map(p => ({ x: p.x, y: p.y }));
+  if(N >= 2){
+    // 화면 방향: 게임은 노트가 떨어져 헤드가 테일보다 아래(y 큼, dir=+1),
+    // 에디터 타임라인은 시간이 아래로 흘러 헤드가 위(y 작음, dir=-1)다.
+    // 몸통 반대쪽(바깥쪽) = 헤드는 dir 방향, 테일은 -dir 방향. 분수는 이 방향 기준이라
+    // 어느 화면에서도 같은 위치(헤드 바깥 쪽 / 테일 바깥 가장자리)에 놓인다.
+    const dir = (pts[0].y - pts[N-1].y) >= -1 ? 1 : -1;
+    // 헤드: 몸통과 맞닿는 면에서 바깥쪽으로 START_FRAC 만큼
+    if(headRect){
+      const bodyEdge = headRect.y + (dir > 0 ? 0 : headRect.h);
+      P[0] = ext(pts[0], pts[1], bodyEdge + dir * (headRect.h * SLIDE_START_FRAC - SLIDE_TRIM_PX));
+    }
+    // 테일: 바깥 가장자리에서 몸통 쪽으로 END_FRAC 만큼 (0이면 바깥 가장자리)
+    if(tailRect){
+      const outerEdge = tailRect.y + (dir > 0 ? 0 : tailRect.h);
+      P[N-1] = ext(pts[N-1], pts[N-2], outerEdge + dir * (tailRect.h * SLIDE_END_FRAC + SLIDE_TRIM_PX));
+    }
+  }
+  return { P: P, halfW: halfW };
+}
+
+// 몸통: 외곽선과 같은 기하(slideGeometry)로 그린다. 모든 구간 동일 디자인(위 규칙).
+// headRect / tailRect는 drawSlideOutline에 넘기는 것과 반드시 같은 값을 넘긴다.
+// 슬라이드 좌우 외곽선 직선 2개(#1 왼쪽, #2 오른쪽)의 시작/끝점 — 몸통과 외곽선이 똑같이 쓴다.
+function slideEdgeLinesBase(pts, laneWidth, headRect, tailRect){
+  const N = pts.length;
+  const g = slideGeometry(pts, laneWidth, headRect, tailRect);
+  const P = g.P, halfW = g.halfW;
+  const unit = (p, q) => {
+    const dx = p.x - q.x, dy = p.y - q.y, l = Math.hypot(dx, dy) || 1;
+    return { x: dx / l, y: dy / l };
+  };
+  const hu = unit(P[0], P[1]), tu = unit(P[N-1], P[N-2]);   // 헤드/테일 바깥 방향
+  const EX = SLIDE_EDGE_EXTRA_PX;
+  const SLIDE_DIR = (pts[0].y - pts[N-1].y) >= -1 ? 1 : -1;   // 헤드 바깥쪽 y 방향 (게임 +1, 에디터 -1)
+  const h = P[0], t = P[N-1];
+  // 각 외곽선을 자기 직선 방향 그대로 양끝에서 SLIDE_LINE_EXTEND_PX 만큼 연장 (직선 유지)
+  const SLIDE_LINE_EXTEND_PX = 5;
+  const extend = (p, q, ext = SLIDE_LINE_EXTEND_PX) => {
+    const dx = q.x - p.x, dy = q.y - p.y, l = Math.hypot(dx, dy) || 1;
+    const ux = dx / l * ext, uy = dy / l * ext;
+    return [{ x: p.x - ux, y: p.y - uy }, { x: q.x + ux, y: q.y + uy }];
+  };
+  const L = {
+    P: P, halfW: halfW,
+    // #1 시작점: 원래 위치보다 아래(헤드 안쪽)로 6px / #1 끝점: 테일 쪽 +1px
+    l1: { x: h.x - halfW, y: h.y - SLIDE_DIR * 6 },
+    l2: { x: t.x - halfW + tu.x * EX, y: t.y + tu.y * EX },
+    // #2 시작점: 헤드 쪽 +1px / #2 끝점: 원래 위치보다 위(테일 안쪽)로 3px
+    r1: { x: h.x + halfW + hu.x * EX, y: h.y + hu.y * EX },
+    r2: { x: t.x + halfW, y: t.y + SLIDE_DIR * 3 }
+  };
+  [L.l1, L.l2] = extend(L.l1, L.l2);
+  [L.r1, L.r2] = extend(L.r1, L.r2, SLIDE_LINE_EXTEND_PX - 2);   // 몸통(fill)이 쓰는 우측 경계 — 변경 없음
+  // 외곽선 #2 그리기 전용 끝점 (몸통에는 영향 없음): 같은 직선 위에서 헤드 쪽 끝 +2px 연장, 테일 쪽 끝 2px 단축
+  { const dx = L.r2.x - L.r1.x, dy = L.r2.y - L.r1.y, l = Math.hypot(dx, dy) || 1, ux = dx / l * 2, uy = dy / l * 2;
+    L.o2a = { x: L.r1.x - ux, y: L.r1.y - uy };
+    L.o2b = { x: L.r2.x - ux, y: L.r2.y - uy }; }
+  // 외곽선 #1 그리기 전용 끝점 (몸통에는 영향 없음): 같은 직선 위에서 테일 쪽 끝만 +2px 연장
+  { const dx = L.l2.x - L.l1.x, dy = L.l2.y - L.l1.y, l = Math.hypot(dx, dy) || 1;
+    L.o1a = { x: L.l1.x, y: L.l1.y };
+    L.o1b = { x: L.l2.x + dx / l * 2, y: L.l2.y + dy / l * 2 }; }
+  return L;
+}
+// 방향 대칭: 위 slideEdgeLinesBase의 끝점 보정(좌 #1 시작 6px, 우 #2 끝 3px, 외곽선 ±2px 등)은
+// 좌→우 슬라이드 기준으로 맞춘 디자인이다. 우→좌는 x를 뒤집어 같은 계산을 한 뒤 되돌리고
+// 좌/우 선을 맞바꿔서, 좌→우의 정확한 거울상이 되게 한다. (몸통·외곽선이 이 함수를 공유)
+function slideEdgeLines(pts, laneWidth, headRect, tailRect){
+  const N = pts.length;
+  if(N < 2 || !(pts[N-1].x < pts[0].x - 0.5)) return slideEdgeLinesBase(pts, laneWidth, headRect, tailRect);
+  const f = p => ({ x: -p.x, y: p.y });
+  const B = slideEdgeLinesBase(pts.map(f), laneWidth, headRect, tailRect);
+  return {
+    P: B.P.map(f), halfW: B.halfW,
+    l1: f(B.r1), l2: f(B.r2), r1: f(B.l1), r2: f(B.l2),
+    o1a: f(B.o2a), o1b: f(B.o2b), o2a: f(B.o1a), o2b: f(B.o1b)
+  };
+}
+function drawSlideBody(ctx, pts, laneWidth, segColors, headRect, tailRect){
+  if(pts.length < 2) return;
+  ctx.save();   // 선 스타일이 밖으로 새지 않게
+  // 몸통 좌우 경계는 외곽선 #1/#2(직선)와 같은 선 위에 놓는다 (slideEdgeLines 공유).
+  const E = slideEdgeLines(pts, laneWidth, headRect, tailRect);
+  const P = E.P, N = P.length;
+  const xAt = (p, q, y) => {   // 직선 p→q 위에서 높이 y의 x
+    const dy = q.y - p.y;
+    return Math.abs(dy) < 1e-6 ? p.x : p.x + (q.x - p.x) * (y - p.y) / dy;
+  };
+  for(let i = 0; i < N - 1; i++){
+    const a = P[i], b = P[i+1];
+    const c = segColors[i] || {};
+    const lTopY = i === 0 ? E.l1.y : a.y,     rTopY = i === 0 ? E.r1.y : a.y;
+    const lBotY = i === N - 2 ? E.l2.y : b.y, rBotY = i === N - 2 ? E.r2.y : b.y;
+    const aL = xAt(E.l1, E.l2, lTopY), aR = xAt(E.r1, E.r2, rTopY);
+    const bL = xAt(E.l1, E.l2, lBotY), bR = xAt(E.r1, E.r2, rBotY);
+    if(c.glow){
+      ctx.fillStyle = c.glow;
+      ctx.beginPath();
+      ctx.moveTo(aL - 4, lTopY);
+      ctx.lineTo(aR + 4, rTopY);
+      ctx.lineTo(bR + 4, rBotY);
+      ctx.lineTo(bL - 4, lBotY);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.fillStyle = c.fill || 'rgba(255,255,255,0.4)';
+    ctx.beginPath();
+    ctx.moveTo(aL, lTopY);
+    ctx.lineTo(aR, rTopY);
+    ctx.lineTo(bR, rBotY);
+    ctx.lineTo(bL, lBotY);
+    ctx.closePath();
+    ctx.fill();
+    if(c.highlight){
+      ctx.strokeStyle = c.highlight;
+      ctx.lineWidth = c.thick ? 4.5 : 2.5;
+      ctx.lineCap = 'butt';      // 직선 끝을 그대로 (둥글게 번지지 않음)
+      ctx.lineJoin = 'miter';
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function slideCapPath(ctx, c){
+  const r = Math.min(c.r, c.w / 2, Math.max(c.h / 2, 0.1));
+  ctx.moveTo(c.x + r, c.y);
+  ctx.arcTo(c.x + c.w, c.y, c.x + c.w, c.y + c.h, r);
+  ctx.arcTo(c.x + c.w, c.y + c.h, c.x, c.y + c.h, r);
+  ctx.arcTo(c.x, c.y + c.h, c.x, c.y, r);
+  ctx.arcTo(c.x, c.y, c.x + c.w, c.y, r);
+  ctx.closePath();
+}
+
+// 슬라이드 외곽선 = 몸통 좌우 변 + 헤드/테일 캡 테두리.
+// headRect / tailRect: 실제로 그려지는 캡의 {x,y,w,h,r} (안 그려지면 null).
+//  1) 몸통 좌우 변: slideGeometry의 끝점(헤드 아래쪽 / 테일 위쪽 미세 조정 위치)까지. 캡 위에 덮어 그린다.
+//  2) 캡 테두리: 몸통이 붙는 면(첫/마지막 구간 사각형 안쪽)만 제외하고 전부 두른다.
+// 그리기 순서: 몸통 → 외곽선 → 헤드/테일 캡. 캡은 외곽선 위에 덮어 그린다(deferred에서 외곽선을 먼저 실행).
+// ★ 몸통과 같은 기하(slideGeometry) 사용, 모든 구간 같은 디자인(slideSegStyle) — 위 규칙 참고.
+function drawSlideOutline(ctx, pts, laneWidth, segColors, headRect, tailRect){
+  const N = pts ? pts.length : 0;
+  if(N < 2) return;
+  const BIG = 1e5;
+  ctx.save();   // 선 스타일이 밖으로 새지 않게
+  // 좌우 변은 직선 선분만: 끝 butt, 이음 miter (캡 테두리만 아래에서 round join 사용)
+  ctx.lineCap = 'butt';
+  ctx.lineJoin = 'miter';
+  ctx.lineWidth = 1.5;
+  // 몸통(drawSlideBody)과 같은 선 — slideEdgeLines 공유
+  const E = slideEdgeLines(pts, laneWidth, headRect, tailRect);
+  const halfW = E.halfW;
+  // 외곽선 #1(왼쪽)·#2(오른쪽)는 각각 시작점→끝점을 잇는 단 하나의 직선 (중간 웨이포인트 무시)
+  let edgeColor = null;
+  for(let i = 0; i < N - 1; i++){ const c = segColors[i] || {}; if(c.edge){ edgeColor = c.edge; break; } }
+  if(edgeColor){
+    ctx.strokeStyle = edgeColor;
+    ctx.beginPath();
+    ctx.moveTo(E.o1a.x, E.o1a.y); ctx.lineTo(E.o1b.x, E.o1b.y);
+    ctx.moveTo(E.o2a.x, E.o2a.y); ctx.lineTo(E.o2b.x, E.o2b.y);
+    ctx.stroke();
+  }
+  const capEdge = (rect, seg, a, b) => {
+    const c = segColors[seg] || {};
+    if(!rect || !c.edge) return;
+    ctx.save();
+    ctx.lineJoin = 'round';   // 캡(둥근 사각형) 테두리 전용
+    ctx.beginPath();
+    ctx.rect(-BIG, -BIG, BIG * 2, BIG * 2);
+    ctx.moveTo(a.x - halfW, a.y); ctx.lineTo(a.x + halfW, a.y);
+    ctx.lineTo(b.x + halfW, b.y); ctx.lineTo(b.x - halfW, b.y);
+    ctx.closePath();
+    ctx.clip('evenodd');
+    ctx.strokeStyle = c.edge;
+    ctx.beginPath();
+    slideCapPath(ctx, rect);
+    ctx.stroke();
+    ctx.restore();
+  };
+  capEdge(headRect, 0, pts[0], pts[1]);
+  capEdge(tailRect, N - 2, pts[N-1], pts[N-2]);
+  ctx.restore();
+}
+
+// 중간 웨이포인트 마커 (다이아몬드). active면 더 크고 밝게.
+function drawSlideWaypoint(ctx, x, y, color, active){
+  const r = active ? 7 : 5;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x, y - r);
+  ctx.lineTo(x + r, y);
+  ctx.lineTo(x, y + r);
+  ctx.lineTo(x - r, y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = active ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.35)';
+  const ir = r * 0.42;
+  ctx.beginPath();
+  ctx.moveTo(x, y - ir);
+  ctx.lineTo(x + ir, y);
+  ctx.lineTo(x, y + ir);
+  ctx.lineTo(x - ir, y);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// 슬라이드 끝점 캡
+// - 기본: 알약형
+// - X≫Y: 플레어된 pill-cap (이미지 tail)
+function slideCapRect(x, y, laneWidth, active, xDominant){
+  const ww = xDominant ? Math.max(laneWidth - 2, 18) : (laneWidth - 4);
+  const hh = xDominant ? (active ? 16 : 13) : (active ? 14 : 11);
+  const rr = xDominant ? hh / 2 : 6;
+  return { x: x - ww / 2, y: y - hh / 2, w: ww, h: hh, r: rr };
+}
+function drawSlideCap(ctx, x, y, laneWidth, color, active, xDominant){
+  const cr = slideCapRect(x, y, laneWidth, active, xDominant);
+  const ww = cr.w, hh = cr.h, rr = cr.r;
+  ctx.fillStyle = color;
+  roundRect(ctx, x - ww / 2, y - hh / 2, ww, hh, rr);
+  ctx.fill();
+  if(active){
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    roundRect(ctx, x - ww / 2 + 3, y - hh / 2 + 2, ww - 6, Math.max(3, hh * 0.28), 2);
+    ctx.fill();
+  }
+  if(xDominant && active){
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 2;
+    roundRect(ctx, x - ww / 2 - 2, y - hh / 2 - 2, ww + 4, hh + 4, rr + 1);
+    ctx.stroke();
+  }
+}
+
+
+// NOTE: HIT_WINDOWS is not read from here — each app still keeps its own local
+// { perfect, great, good, miss } constant — but as of this fix both game.js and
+// editor.js hardcode the SAME values (perfect:36, great:72, good:110, miss:145).
+// Previously the editor's playtest mode used a looser window (40/80/120/150),
+// so a chart could test-play as easy in the editor and then feel too tight in
+// the real game. Keep these two constants in sync if you ever tune timing.
+
+// ===== js/shared/gameplay.js (generated by build.js — do not edit directly) =====
+// gameplay.js — shared hit-judgment, scoring, and hold-note formulas.
+//
+// This does NOT unify the two apps' tuning constants (HIT_WINDOWS, per-app
+// score numbers) — the real game and the editor's playtest mode intentionally
+// use different timing windows (see js/shared/canvas-utils.js for why).
+// What was actually duplicated, and fragile because of it, was the *formula*:
+// the game (js/game/input.js, js/game/game.js) and the editor's test-play
+// mode (js/editor/editor.js) each had their own copy of "how do we turn a
+// timing delta into a judgement" and "how do we grade a hold note's tail",
+// and the copies had already drifted (e.g. editor test-play never scored
+// hold ticks or graded tail accuracy). Both apps now call these functions
+// with their own config, so the formula can't silently re-diverge again.
+
+/**
+ * Turn a signed timing delta (input time − ideal hit time, ms) into a
+ * judgement. Returns null if the delta is outside the miss window.
+ * @param {number} signedDelta >0 = LATE input, <0 = EARLY input
+ * @param {{perfect:number, great:number, good:number, miss:number}} windows
+ */
+function judgeDelta(signedDelta, windows){
+  const abs = Math.abs(signedDelta);
+  let judge, color, base;
+  if(abs <= windows.perfect){
+    judge = 'PERFECT'; color = '#3fe0ff';
+    // Perfect 구간 안에서도 중심에 가까울수록 점수↑ (250~300)
+    const t = abs / windows.perfect;
+    base = Math.round(300 - t * 50);
+  } else if(abs <= windows.great){
+    judge = 'GREAT'; color = '#9a4dff'; base = 200;
+  } else if(abs <= windows.good){
+    judge = 'GOOD'; color = '#ffd23f'; base = 100;
+  } else if(abs <= windows.miss){
+    judge = 'BAD'; color = '#ff3d81'; base = 50;
+  } else {
+    return null;
+  }
+  let side = '';
+  if(signedDelta < -2) side = 'EARLY';
+  else if(signedDelta > 2) side = 'LATE';
+  return { judge, color, points: base, side, abs };
+}
+
+/** Score multiplier applied to a hold note's head based on its hit judgement. */
+function holdHeadMult(judge){
+  if(judge === 'PERFECT') return 1;
+  if(judge === 'GREAT') return 0.88;
+  if(judge === 'GOOD') return 0.7;
+  return 0.45; // BAD
+}
+
+/**
+ * Grade how accurately a hold note was released relative to its end time.
+ * @param {number} absTail |judgeTime − holdEndTime| at release, ms
+ * @param {{perfect:number, great:number}} windows
+ * @param {{tailPerfect:number, tailGreat:number, tailOk:number}} holdScore
+ */
+function holdTailJudgment(absTail, windows, holdScore){
+  if(absTail > windows.great){
+    return { bonus: holdScore.tailOk, label: 'HOLD OK', color: '#ffd23f' };
+  }
+  if(absTail > windows.perfect){
+    return { bonus: holdScore.tailGreat, label: 'HOLD GREAT', color: '#9a4dff' };
+  }
+  return { bonus: holdScore.tailPerfect, label: 'HOLD PERFECT', color: '#3fe0ff' };
+}
+
+// Default hold-note scoring weights. The real game used to keep its own
+// private copy of this object; the editor's test-play mode never had an
+// equivalent at all (it awarded a flat, untuned hold score with no tick or
+// tail grading). Both now share this so a test-play run in the editor is
+// actually representative of the real game's scoring.
+const DEFAULT_HOLD_SCORE = {
+  headScale: 0.5,       // 헤드 = 일반 노트 점수의 50%
+  tickBase: 28,         // 반박마다 틱 기본점
+  completeBase: 120,    // 완주 기본점
+  perBeat: 70,          // 홀드 1박당 길이 보너스
+  tailPerfect: 90,
+  tailGreat: 55,
+  tailOk: 25
+};
+
+// 슬라이드 노트(레인을 넘나드는 체인)의 중간 지점 하나를 성공적으로 잡았을 때
+// 주는 점수. 헤드는 일반 탭/홀드 판정을 그대로 쓰고, 이 상수는 헤드 이후의
+// 각 웨이포인트(터치를 유지한 채 다음 레인으로 넘어가는 지점)에만 쓰인다.
+// 게임(js/game/game.js)과 에디터 테스트플레이(js/editor/editor.js) 둘 다
+// 같은 값을 쓴다 — 점수 공식이 두 곳에서 따로 어긋나지 않도록.
+const SLIDE_WAYPOINT_SCORE = 30;
+
+// ===== js/editor/editor.js (generated by build.js — do not edit directly) =====
+(function(){
+  // ===== 성능 최적화: 미리보기 감지 + 수동 저사양 모드 =====
+  // iframe(임베드/미리보기) 안에서는 '기본값'만 저사양으로 시작한다.
+  // 사용자가 토글로 저장한 선택(ON/OFF)은 환경과 상관없이 항상 우선한다.
+  const isPreview = (()=>{
+    try{ return window.self !== window.top; }
+    catch(_){ return true; }
+  })();
+  let lowDetail = isPreview;
+  try{
+    let saved = localStorage.getItem('neonBeatLowDetail');
+    if(saved == null) saved = localStorage.getItem('neonBeatLowSpec');
+    if(saved === '1') lowDetail = true;
+    else if(saved === '0') lowDetail = false;
+  }catch(_){}
+
+  // ===== 적응형 품질 (테스트 플레이 프레임 기반) =====
+  let autoLow = false;
+  let _frameSamples = [];
+  const _FRAME_SAMPLE_N = 30;
+  const _AUTO_LOW_ON_MS = 22;
+  const _AUTO_LOW_OFF_MS = 14;
+  const _AUTO_LOW_HOLD = 12;
+  let _autoLowStreak = 0;
+  function qualityLow(){ return lowDetail || autoLow; }
+  function updateAdaptiveQuality(frameMs){
+    if(lowDetail){ autoLow = false; _autoLowStreak = 0; return; }
+    _frameSamples.push(frameMs);
+    if(_frameSamples.length > _FRAME_SAMPLE_N) _frameSamples.shift();
+    let sum = 0;
+    for(let i = 0; i < _frameSamples.length; i++) sum += _frameSamples[i];
+    const avg = sum / _frameSamples.length;
+    if(!autoLow){
+      if(avg >= _AUTO_LOW_ON_MS){
+        _autoLowStreak++;
+        if(_autoLowStreak >= _AUTO_LOW_HOLD){ autoLow = true; _autoLowStreak = 0; }
+      } else _autoLowStreak = 0;
+    } else {
+      if(avg <= _AUTO_LOW_OFF_MS){
+        _autoLowStreak++;
+        if(_autoLowStreak >= _AUTO_LOW_HOLD * 2){ autoLow = false; _autoLowStreak = 0; }
+      } else _autoLowStreak = 0;
+    }
+  }
+
+  // LANE_COLORS now comes from js/shared/canvas-utils.js
+  const KEYS = ['D','F','J','K'];
+  const STORAGE_KEY = 'neonBeatCustomChart';
+  // SONG_DB_NAME / SONG_STORE now come from js/shared/song-db.js
+  // Match the real game's prep countdown so test-play timing feels the same
+  const PREP_MS = 3000;
+  const BASE_APPROACH_MS = 900;
+
+  // ==================== 안전한 로컬 저장소 접근 ====================
+  // (makeSafeStorage now comes from js/shared/storage.js)
+  const safeLS = makeSafeStorage('localStorage');
+  const safeSS = makeSafeStorage('sessionStorage');
+
+  // GD식 Song ID: 채보에는 id/메타만, 오디오 바이너리는 IndexedDB
+  /** @type {{id:string,name:string,duration:number}|null} */
+  let currentSong = null;
+
+  // openSongDB / getAudioDuration / idbSaveSong / idbGetSong / idbListSongs /
+  // idbDeleteSong now come from js/shared/song-db.js
+  function formatBytes(n){
+    if(!n || n < 0) return '?';
+    if(n < 1024) return n + ' B';
+    if(n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+    return (n/(1024*1024)).toFixed(1) + ' MB';
+  }
+  function refreshSongLabel(){
+    const el = document.getElementById('song-label');
+    if(!el) return;
+    if(!currentSong){ el.textContent = '없음'; el.title = ''; return; }
+    const sec = currentSong.duration ? (' · ' + Math.round(currentSong.duration) + 's') : '';
+    el.textContent = (currentSong.name || currentSong.id) + sec;
+    el.title = 'Song ID: ' + currentSong.id;
+  }
+
+  async function openSongLibrary(){
+    const modal = document.getElementById('song-modal');
+    const list = document.getElementById('song-list');
+    if(!modal || !list) return;
+    list.innerHTML = '<div style="color:var(--dim);font-size:12px;padding:8px;">불러오는 중…</div>';
+    modal.classList.add('show');
+    let rows = [];
+    try{ rows = await idbListSongs(); }
+    catch(err){
+      list.innerHTML = '<div style="color:#ff3d81;font-size:12px;">보관함 읽기 실패</div>';
+      return;
+    }
+    if(!rows.length){
+      list.innerHTML = '<div style="color:var(--dim);font-size:12px;padding:8px;">저장된 곡이 없습니다. 「새 파일 추가」로 넣어 주세요.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    for(const row of rows){
+      const size = row.blob && row.blob.size != null ? formatBytes(row.blob.size) : '?';
+      const sec = row.duration ? Math.round(row.duration) + 's' : '?s';
+      const item = document.createElement('div');
+      item.className = 'song-item';
+      item.innerHTML =
+        '<div class="meta">' +
+          '<div class="name"></div>' +
+          '<div class="sub"></div>' +
+        '</div>' +
+        '<button type="button" class="pick">선택</button>' +
+        '<button type="button" class="del danger">삭제</button>';
+      item.querySelector('.name').textContent = row.name || row.id;
+      item.querySelector('.sub').textContent = sec + ' · ' + size + ' · ' + row.id;
+      item.querySelector('.pick').onclick = ()=>{
+        currentSong = { id: row.id, name: row.name || row.id, duration: row.duration || 0 };
+        refreshSongLabel();
+        modal.classList.remove('show');
+        flashStatus('곡 선택: ' + currentSong.name);
+      };
+      item.querySelector('.del').onclick = async ()=>{
+        if(!confirm('이 곡을 브라우저에서 삭제할까요?\n' + (row.name || row.id))) return;
+        try{
+          await idbDeleteSong(row.id);
+          if(currentSong && currentSong.id === row.id){
+            currentSong = null;
+            refreshSongLabel();
+          }
+          openSongLibrary();
+        }catch(err){
+          alert('삭제 실패');
+        }
+      };
+      list.appendChild(item);
+    }
+  }
+  // Matches the real game's HIT_WINDOWS exactly now (see js/shared/canvas-utils.js —
+  // this used to be a looser { perfect:40, great:80, good:120, miss:150 }, so a chart
+  // that felt fine in editor test-play could still be too tight in the real game).
+  const HIT_WINDOWS = { perfect:36, great:72, good:110, miss:145 };
+  // HOLD_SCORE shares the real game's formula/weights (js/shared/gameplay.js)
+  // instead of quietly diverging, same reasoning as HIT_WINDOWS above.
+  const HOLD_SCORE = DEFAULT_HOLD_SCORE;
+  let speedRate = parseFloat(safeLS.get('neonBeatSpeed', '1')) || 1;
+  speedRate = Math.max(0.75, Math.min(2, Math.round(speedRate * 20) / 20));
+  function approachMs(){ return BASE_APPROACH_MS / speedRate; }
+
+  // ===== 에디터 상태 =====
+  let bpm = 176;
+  let bars = 16;           // 한 마디 = 4박
+  let snapDiv = 4;         // 1/4, 1/8, 1/16
+  let tool = 'tap';         // tap | hold | erase | speed
+  /** @type {{t:number, lane:number, hold?:number}[]} */
+  let notes = [];
+  /** @type {{t:number, rate:number}[]} 박 단위 속도 트리거 */
+  let speedTriggers = [];
+  let scrollBeat = 0;      // 화면 상단에 보이는 시작 박
+  let pxPerBeat = 48;
+  let spaceDown = false;
+  /** Undo 스택 (노트 배열 JSON 스냅샷) */
+  const undoStack = [];
+  const UNDO_MAX = 60;
+  function pushHistory(){
+    try{
+      undoStack.push(JSON.stringify({ notes, speedTriggers }));
+      if(undoStack.length > UNDO_MAX) undoStack.shift();
+    }catch(_){}
+  }
+  function undo(){
+    if(undoStack.length === 0){
+      flashStatus('되돌릴 작업 없음');
+      return;
+    }
+    try{
+      const snap = JSON.parse(undoStack.pop());
+      if(Array.isArray(snap)){
+        notes = snap;
+      } else {
+        notes = snap.notes || [];
+        speedTriggers = snap.speedTriggers || [];
+      }
+    }catch(_){
+      notes = [];
+      speedTriggers = [];
+    }
+    sortNotes();
+    sortTriggers();
+    refreshStatus();
+    drawEditor();
+  }
+  function sortTriggers(){
+    speedTriggers.sort((a,b)=> a.t - b.t || a.rate - b.rate);
+  }
+
+  const canvas = document.getElementById('editor');
+  const ctx = canvas.getContext('2d');
+  // 에디터 드로잉 스로틀 (연속 입력 시 한 프레임에 한 번만 그림)
+  const statusEl = document.getElementById('status');
+  const bpmInput = document.getElementById('bpm');
+  const barsInput = document.getElementById('bars');
+
+  function beatMs(){ return 60000 / bpm; }
+  function totalBeats(){ return bars * 4; }
+  function maxHoldBeats(){ return 8; }
+  function visibleBeats(){
+    return Math.max(4, (H - padTop - padBot) / pxPerBeat);
+  }
+  function minScroll(){ return -1.5; } // 시작(0박) 아래로 조금 더 내려갈 수 있음
+  function maxScroll(){
+    // 마지막 노트 위쪽(미래 방향)에 여유를 두고, 아래로는 항상 0 근처까지 돌아갈 수 있게
+    return Math.max(0, totalBeats() - visibleBeats() * 0.35);
+  }
+  function clampScroll(v){
+    return Math.max(minScroll(), Math.min(maxScroll(), v));
+  }
+
+  function snapBeat(b){
+    const step = 1 / snapDiv;
+    return Math.round(b / step) * step;
+  }
+
+  function refreshStatus(){
+    const tr = speedTriggers.length ? (' · 속도트리거 ' + speedTriggers.length) : '';
+    statusEl.textContent = '노트 ' + notes.length + tr;
+  }
+
+  // ===== 리사이즈 =====
+  let W=0, H=0, dpr=1;
+  // 에디터의 '박당 픽셀 간격'은 BPM·마디 수와 무관하게 항상 같다.
+  // 예전에는 beatMs() × 낙하속도라서 BPM을 바꿀 때마다 노트 설치 간격이 늘었다 줄었다 했다.
+  // 기준 BPM(176)에서의 테스트 플레이 간격을 고정 간격으로 쓴다 → 기본 BPM에서는 이전과 동일.
+  // (화면 높이와 속도 배율 설정에는 계속 반응한다.)
+  const EDITOR_REF_BPM = 176;
+  function syncScaleToPlay(){
+    const judgeY = H * 0.78;
+    const travel = Math.max(100, judgeY - 40);   // 테스트 플레이(pTravelPx)와 동일 공식
+    const noteSpeed = travel / BASE_APPROACH_MS; // px per ms (속도 배율과 무관 — 속도를 바꿔도 간격 고정)
+    pxPerBeat = Math.max(36, (60000 / EDITOR_REF_BPM) * noteSpeed);
+  }
+  function resizeEditor(){
+    const wrap = document.getElementById('editor-wrap');
+    const rect = wrap.getBoundingClientRect();
+    let maxDpr = (window.innerWidth > window.innerHeight) ? 1.5 : 2;
+    if(lowDetail) maxDpr = 1;
+    dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
+    W = Math.max(1, Math.floor(rect.width));
+    H = Math.max(1, Math.floor(rect.height));
+    canvas.width = Math.floor(W * dpr);
+    canvas.height = Math.floor(H * dpr);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    syncScaleToPlay();
+    _editorRect = null;
+    drawEditor();
+  }
+  window.addEventListener('resize', resizeEditor);
+  window.addEventListener('orientationchange', ()=> setTimeout(resizeEditor, 80));
+
+  // ===== 좌표 변환 =====
+  // 실제 플레이 화면과 같은 방향: 아래가 판정선(과거), 위로 갈수록 미래(큰 beat).
+  // 헤드는 아래, 테일/홀드 끝은 위 — 노트가 위에서 아래로 떨어져 오는 것과 같다.
+  // (이전에는 시간이 위→아래로 증가하는 반대 방향이었다.)
+  const padTop = 40;
+  const padBot = 24;
+  function laneLayout(){
+    const landscape = W > H * 1.05;
+    const totalW = landscape ? Math.min(W * 0.92, 640) : Math.min(W * 0.92, 400);
+    const startX = (W - totalW) / 2;
+    const laneW = totalW / 4;
+    return { startX, laneW, totalW };
+  }
+  // scrollBeat 가 화면 상단(padTop 아래)에 있고, beat가 커질수록 y는 커진다(아래쪽).
+  function beatToY(beat){
+    return (H - padBot) - (beat - scrollBeat) * pxPerBeat;
+  }
+  function yToBeat(y){
+    return scrollBeat + ((H - padBot) - y) / pxPerBeat;
+  }
+  function xToLane(x){
+    const { startX, laneW } = laneLayout();
+    if(x < startX || x > startX + laneW * 4) return -1;
+    return Math.min(3, Math.max(0, Math.floor((x - startX) / laneW)));
+  }
+
+  // ===== 그리기 =====
+  function drawEditor(){
+    ctx.clearRect(0, 0, W, H);
+    const { startX, laneW, totalW } = laneLayout();
+    const tb = totalBeats();
+
+    // 배경 레인
+    for(let i=0;i<4;i++){
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.04)';
+      ctx.fillRect(startX + i*laneW, 0, laneW, H);
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      ctx.beginPath();
+      ctx.moveTo(startX + i*laneW, 0);
+      ctx.lineTo(startX + i*laneW, H);
+      ctx.stroke();
+      // 키 라벨
+      ctx.fillStyle = LANE_COLORS[i];
+      ctx.font = 'bold 12px Orbitron';
+      ctx.textAlign = 'center';
+      ctx.fillText(KEYS[i], startX + i*laneW + laneW/2, H - 8);   // 실제 플레이처럼 판정선(아래) 쪽
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.strokeRect(startX, 0, totalW, H);
+
+    // 비트 그리드
+    const startB = Math.floor(scrollBeat) - 1;
+    const endB = Math.ceil(scrollBeat + (H - padBot) / pxPerBeat) + 1;   // 화면 맨 위의 beat
+    for(let b = startB; b <= endB; b++){
+      if(b < 0 || b > tb) continue;
+      const y = beatToY(b);
+      const isBar = b % 4 === 0;
+      const isBeat = Number.isInteger(b);
+      ctx.strokeStyle = isBar ? 'rgba(63,224,255,0.35)' : isBeat ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.05)';
+      ctx.lineWidth = isBar ? 2 : 1;
+      ctx.beginPath();
+      ctx.moveTo(startX, y);
+      ctx.lineTo(startX + totalW, y);
+      ctx.stroke();
+      if(isBar){
+        ctx.fillStyle = 'rgba(63,224,255,0.6)';
+        ctx.font = '10px Orbitron';
+        ctx.textAlign = 'right';
+        ctx.fillText('M' + (b/4 + 1), startX - 6, y + 3);
+      }
+    }
+
+    // 속도 트리거 표시 (타임라인 왼쪽 마커)
+    for(const tr of speedTriggers){
+      const y = beatToY(tr.t);
+      if(y < -20 || y > H + 20) continue;
+      ctx.strokeStyle = 'rgba(255,210,63,0.85)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(startX, y);
+      ctx.lineTo(startX + totalW, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // 배속 뱃지 (measureText는 프레임마다 텍스트 메트릭을 재계산하는 비용이 있어
+      // 본게임처럼 고정 폭으로 바꿔 드래그/팬 중 반복 호출을 없앤다)
+      const label = tr.rate.toFixed(2) + '×';
+      ctx.font = 'bold 11px Orbitron';
+      ctx.textAlign = 'left';
+      const tw = 46;
+      ctx.fillStyle = 'rgba(255,210,63,0.9)';
+      ctx.fillRect(startX + totalW + 6, y - 10, tw, 18);
+      ctx.fillStyle = '#1a1200';
+      ctx.fillText(label, startX + totalW + 11, y + 4);
+      // 왼쪽 삼각
+      ctx.fillStyle = '#ffd23f';
+      ctx.beginPath();
+      ctx.moveTo(startX - 4, y);
+      ctx.lineTo(startX - 14, y - 8);
+      ctx.lineTo(startX - 14, y + 8);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // 노트
+    // 노트끼리 겹칠 때 헤드/테일(+슬라이드 외곽선 포함 몸통)이 서로 가리지
+    // 않도록, 몸통(홀드 바디, 슬라이드 몸통+외곽선+중간 웨이포인트)을 먼저
+    // 전부 그린 뒤 헤드/테일은 deferredCaps에 모아 맨 마지막에 그린다.
+    const deferredCaps = [];
+    const deferredOutlines = [];
+    for(const n of notes){
+      const y = beatToY(n.t);
+      const x = startX + n.lane * laneW + 6;
+      const w = laneW - 12;
+      const color = LANE_COLORS[n.lane];
+      if(n.hold && n.hold > 0){
+        const y2 = beatToY(n.t + n.hold);
+        const top = Math.min(y, y2);
+        const h = Math.abs(y2 - y);
+        ctx.fillStyle = LANE_COLORS_DIM[n.lane];
+        ctx.fillRect(x + 4, top, w - 8, Math.max(h, 4));
+        if(!lowDetail){
+          ctx.fillStyle = 'rgba(255,255,255,0.25)';
+          ctx.fillRect(x + w/2 - 1.5, top, 3, Math.max(h, 4));
+        }
+        // tail
+        deferredCaps.push(() => {
+          ctx.fillStyle = color;
+          if(lowDetail) ctx.fillRect(x + 2, y2 - 6, w - 4, 12);
+          else { roundRect(ctx, x + 2, y2 - 6, w - 4, 12, 4); ctx.fill(); }
+        });
+      }
+      // 슬라이드 체인: 연결 구간은 각도에 맞춰 기울인 두꺼운 막대.
+      // 헤드·웨이포인트 캡은 수직(비회전) — 홀드 헤드/테일과 같은 느낌.
+      if(Array.isArray(n.slide) && n.slide.length){
+        const headColor = LANE_COLORS[n.lane];
+        const chain = [{ x: x + w/2, y: y }];
+        for(const wp of n.slide){
+          chain.push({ x: startX + wp.lane * laneW + laneW/2, y: beatToY(wp.t) });
+        }
+        slideStraightChain(chain);   // 시작~도착 한 직선, 웨이포인트는 색만 변경
+        // 모든 구간 동일 디자인 (첫 구간만 glow/굵게 등 특별 처리 금지)
+        const segColors = n.slide.map(wp => slideSegStyle(headColor, LANE_COLORS[wp.lane]));
+        // 몸통·외곽선이 같은 캡 도형으로 끝점을 계산하므로 body 그리기 전에 rect를 정한다
+        const _hr = (y > -20 && y < H + 20) ? { x: x, y: y - 8, w: w, h: 16, r: lowDetail ? 0 : 5 } : null;
+        const _ty = chain[chain.length - 1].y;
+        const _tr = (_ty > -20 && _ty < H + 20) ? slideCapRect(chain[chain.length - 1].x, _ty, w, true, false) : null;
+        drawSlideBody(ctx, chain, w, segColors, _hr, _tr);
+        for(let ci = 1; ci < chain.length - 1; ci++){
+          const p = chain[ci];
+          if(p.y < -20 || p.y > H + 20) continue;
+          drawSlideWaypoint(ctx, p.x, p.y, LANE_COLORS[n.slide[ci - 1].lane], ci === 1);
+        }
+        const lastWp = n.slide[n.slide.length - 1];
+        const tailY = beatToY(lastWp.t);
+        if(tailY > -20 && tailY < H + 20){
+          const tailX = chain[chain.length - 1].x;
+          deferredCaps.push(() => {
+            drawSlideCap(ctx, tailX, tailY, w, LANE_COLORS[lastWp.lane], true, false);
+          });
+        }
+        {
+          const _os = segColors.map(c => ({ edge: c.edge })), _oc = chain, _ow = w;
+          deferredOutlines.push(() => drawSlideOutline(ctx, _oc, _ow, _os, _hr, _tr));
+        }
+      }
+      // head (shadowBlur 제거: 드래그/팬 중 매 프레임 반복되는 가장 비싼 연산이라
+      // 본게임 draw()와 동일하게 뺐다 — 대신 밝은 하이라이트 바로 입체감 유지)
+      if(y > -20 && y < H + 20){
+        deferredCaps.push(() => {
+          ctx.fillStyle = color;
+          if(lowDetail){
+            ctx.fillRect(x, y - 8, w, 16);
+          } else {
+            roundRect(ctx, x, y - 8, w, 16, 5);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(255,255,255,0.4)';
+            roundRect(ctx, x + 3, y - 4, w - 6, 5, 2);
+            ctx.fill();
+          }
+        });
+      }
+    }
+    // 그리기 순서: 몸통 → 외곽선 → 헤드/테일 캡 (캡이 맨 위)
+    for(const drawOutline of deferredOutlines) drawOutline();
+    for(const drawCap of deferredCaps) drawCap();
+
+    // 드래그 프리뷰
+    if(drag && drag.tool === 'slide'){
+      const hx = startX + drag.lane * laneW + laneW/2;
+      const hy = beatToY(drag.startBeat);
+      const headColor = LANE_COLORS[drag.lane];
+      const previewPts = [{ x: hx, y: hy }];
+      for(const wp of drag.path){
+        previewPts.push({
+          x: startX + wp.lane * laneW + laneW/2,
+          y: beatToY(wp.t)
+        });
+      }
+      const curLane = drag.curLane != null ? drag.curLane : drag.lane;
+      previewPts.push({
+        x: startX + curLane * laneW + laneW/2,
+        y: beatToY(drag.curBeat)
+      });
+      slideStraightChain(previewPts);   // 시작~도착 한 직선, 웨이포인트는 색만 변경
+      // 몸통·외곽선이 같은 캡 도형을 쓴다
+      const _dhr = { x: hx - 12, y: hy - 6, w: 24, h: 12, r: 5 };
+      const _dtr = slideCapRect(previewPts[previewPts.length - 1].x, previewPts[previewPts.length - 1].y, laneW - 12, true, false);
+      if(previewPts.length >= 2){
+        const segColors = [];
+        for(let i = 0; i < previewPts.length - 1; i++){
+          const destLane = i < drag.path.length ? drag.path[i].lane : curLane;
+          segColors.push(slideSegStyle(headColor, LANE_COLORS[destLane]));
+        }
+        drawSlideBody(ctx, previewPts, laneW - 12, segColors, _dhr, _dtr);
+        for(let i = 1; i < previewPts.length - 1; i++){
+          const p = previewPts[i];
+          const lane = i <= drag.path.length ? (i === 0 ? drag.lane : drag.path[i-1].lane) : curLane;
+          // waypoint index maps to path
+          const wl = i <= drag.path.length ? drag.path[i-1].lane : curLane;
+          drawSlideWaypoint(ctx, p.x, p.y, LANE_COLORS[wl], i === drag.path.length);
+        }
+        const last = previewPts[previewPts.length - 1];
+        drawSlideCap(ctx, last.x, last.y, laneW - 12, LANE_COLORS[curLane], true, false);
+      }
+      ctx.fillStyle = headColor;
+      roundRect(ctx, hx - 12, hy - 6, 24, 12, 5);
+      ctx.fill();
+      if(previewPts.length >= 2){
+        const _ps = [];
+        for(let i = 0; i < previewPts.length - 1; i++){
+          const dl = i < drag.path.length ? drag.path[i].lane : curLane;
+          _ps.push({ edge: LANE_COLORS[dl] });
+        }
+        drawSlideOutline(ctx, previewPts, laneW - 12, _ps, _dhr, _dtr);
+      }
+    } else if(drag){
+      const y1 = beatToY(drag.startBeat);
+      const y2 = beatToY(drag.curBeat);
+      const x = startX + drag.lane * laneW + 6;
+      const w = laneW - 12;
+      const top = Math.min(y1, y2);
+      const h = Math.max(4, Math.abs(y2 - y1));
+      ctx.strokeStyle = LANE_COLORS[drag.lane];
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(x, top, w, h);
+      ctx.setLineDash([]);
+    }
+  }
+
+  // roundRect now comes from js/shared/canvas-utils.js
+
+  // ===== 노트 조작 / 충돌 검사 =====
+  // Same-lane time overlap is illegal (tap on hold body, hold-vs-hold, etc.).
+  // Slide waypoints are treated as point hits on their own lanes.
+  function noteInterval(n){
+    return { a: n.t, b: n.t + (n.hold || 0) };
+  }
+  function intervalsOverlap(a1, b1, a2, b2){
+    // Touching only at endpoints is allowed (adjacent placement)
+    return a1 < b2 - 1e-9 && a2 < b1 - 1e-9;
+  }
+  function conflictsWith(lane, t, hold, ignore){
+    const a = t;
+    const b = t + (hold || 0);
+    for(const n of notes){
+      if(n === ignore) continue;
+      // Head / hold body on this lane
+      if(n.lane === lane){
+        const iv = noteInterval(n);
+        if(intervalsOverlap(a, b, iv.a, iv.b) || Math.abs(a - iv.a) < 1e-9) return n;
+      }
+      // Slide waypoints on this lane (point hits)
+      if(Array.isArray(n.slide)){
+        for(const wp of n.slide){
+          if(wp.lane !== lane) continue;
+          if(intervalsOverlap(a, b, wp.t, wp.t)) return n;
+        }
+      }
+    }
+    return null;
+  }
+
+  function findNoteAt(beat, lane, tol){
+    tol = tol == null ? (1 / snapDiv) * 0.6 : tol;
+    let best = null, bestD = Infinity;
+    for(const n of notes){
+      if(n.lane !== lane) continue;
+      const d = Math.abs(n.t - beat);
+      if(d < tol && d < bestD){ best = n; bestD = d; }
+      if(n.hold && beat >= n.t - tol && beat <= n.t + n.hold + tol){
+        if(best !== n){ best = n; bestD = 0; }
+      }
+    }
+    return best;
+  }
+
+  function flashStatus(msg){
+    statusEl.textContent = msg;
+    statusEl.style.color = '#ff3d81';
+    clearTimeout(flashStatus._t);
+    flashStatus._t = setTimeout(()=>{
+      statusEl.style.color = '';
+      refreshStatus();
+    }, 1200);
+  }
+
+  function addTap(beat, lane){
+    beat = snapBeat(beat);
+    if(beat < 0 || beat > totalBeats()) return;
+    const exist = notes.find(n => n.lane === lane && Math.abs(n.t - beat) < 1e-6);
+    if(exist){
+      pushHistory();
+      notes = notes.filter(n => n !== exist);
+      sortNotes();
+      refreshStatus();
+      drawEditor();
+      return;
+    }
+    const hit = conflictsWith(lane, beat, 0, null);
+    if(hit){
+      flashStatus('겹침/홀드 위 배치 불가');
+      return;
+    }
+    pushHistory();
+    notes.push({ t: beat, lane });
+    sortNotes();
+    refreshStatus();
+    drawEditor();
+  }
+
+  function addHold(startBeat, endBeat, lane){
+    let a = snapBeat(Math.min(startBeat, endBeat));
+    let b = snapBeat(Math.max(startBeat, endBeat));
+    if(b - a < 1 / snapDiv) b = a + 1 / snapDiv;
+    if(b - a > maxHoldBeats()) b = a + maxHoldBeats();
+    if(a < 0) a = 0;
+    if(b > totalBeats()) b = totalBeats();
+    const hit = conflictsWith(lane, a, b - a, null);
+    if(hit){
+      flashStatus('겹치는 노트 있음 — 배치 불가');
+      return;
+    }
+    pushHistory();
+    notes.push({ t: a, lane, hold: b - a });
+    sortNotes();
+    refreshStatus();
+    drawEditor();
+  }
+
+  // Slide note: head at (startBeat, lane), then waypoints recorded whenever the
+  // drag crosses into a new lane (same idea as in-game pointermove). If the
+  // path is empty (no lane change), place a regular tap instead.
+  function addSlide(startBeat, lane, path){
+    const a = snapBeat(startBeat);
+    if(a < 0 || a > totalBeats()) return;
+    if(!path || path.length === 0){
+      addTap(a, lane);
+      return;
+    }
+    const hit = conflictsWith(lane, a, 0, null);
+    if(hit){
+      flashStatus('겹침/홀드 위 배치 불가');
+      return;
+    }
+    // Sanitize waypoints: valid lanes, strictly increasing time, clip to chart
+    const clean = [];
+    let prevT = a;
+    for(const wp of path){
+      if(wp.lane < 0 || wp.lane > 3) continue;
+      let t = wp.t;
+      if(t <= prevT) t = prevT + 1 / snapDiv;
+      if(t > totalBeats()) break;
+      clean.push({ lane: wp.lane, t });
+      prevT = t;
+    }
+    if(clean.length === 0){
+      addTap(a, lane);
+      return;
+    }
+    // Also reject if any waypoint overlaps an existing note on that lane
+    for(const wp of clean){
+      if(conflictsWith(wp.lane, wp.t, 0, null)){
+        flashStatus('슬라이드 지점이 기존 노트와 겹침');
+        return;
+      }
+    }
+    pushHistory();
+    notes.push({ t: a, lane, slide: clean });
+    sortNotes();
+    refreshStatus();
+    drawEditor();
+    flashStatus('슬라이드 노트 추가 (' + clean.length + '지점)');
+  }
+
+  function eraseAt(beat, lane){
+    // 속도 트리거 우선 삭제
+    const tr = findTriggerAt(beat);
+    if(tr){
+      pushHistory();
+      speedTriggers = speedTriggers.filter(x => x !== tr);
+      refreshStatus();
+      drawEditor();
+      return;
+    }
+    const n = findNoteAt(beat, lane) || findSlideChainAt(beat, lane);
+    if(n){
+      pushHistory();
+      notes = notes.filter(x => x !== n);
+      refreshStatus();
+      drawEditor();
+    }
+  }
+
+  // 슬라이드 체인의 중간 지점(헤드가 아닌 레인)을 클릭해도 지우개가 그 체인
+  // 전체를 찾을 수 있도록. 부분 삭제는 지원하지 않음 — 체인 전체를 지운다.
+  function findSlideChainAt(beat, lane, tol){
+    tol = tol == null ? (1 / snapDiv) * 0.6 : tol;
+    for(const n of notes){
+      if(!Array.isArray(n.slide)) continue;
+      for(const wp of n.slide){
+        if(wp.lane === lane && Math.abs(wp.t - beat) < tol) return n;
+      }
+    }
+    return null;
+  }
+
+  function findTriggerAt(beat, tol){
+    tol = tol == null ? (1 / snapDiv) * 0.75 : tol;
+    let best = null, bestD = Infinity;
+    for(const tr of speedTriggers){
+      const d = Math.abs(tr.t - beat);
+      if(d < tol && d < bestD){ best = tr; bestD = d; }
+    }
+    return best;
+  }
+
+  function addSpeedTrigger(beat){
+    beat = snapBeat(beat);
+    if(beat < 0 || beat > totalBeats()) return;
+    const exist = findTriggerAt(beat, 1e-6);
+    if(exist){
+      // 같은 위치: 현재 툴바 속도로 갱신 / 같으면 삭제
+      if(Math.abs(exist.rate - speedRate) < 1e-6){
+        pushHistory();
+        speedTriggers = speedTriggers.filter(x => x !== exist);
+        flashStatus('속도 트리거 삭제');
+      } else {
+        pushHistory();
+        exist.rate = speedRate;
+        flashStatus('속도 트리거 → ' + speedRate.toFixed(2) + '×');
+      }
+      sortTriggers();
+      refreshStatus();
+      drawEditor();
+      return;
+    }
+    pushHistory();
+    speedTriggers.push({ t: beat, rate: speedRate });
+    sortTriggers();
+    refreshStatus();
+    drawEditor();
+    flashStatus(speedRate.toFixed(2) + '× @ ' + beat + '박');
+  }
+
+  function sortNotes(){
+    notes.sort((a,b)=> a.t - b.t || a.lane - b.lane);
+  }
+
+  // sanitizeNotes now comes from js/shared/chart-format.js
+
+  // ===== 포인터 =====
+  let drag = null;
+  let panning = false;
+  let panStartY = 0;
+  let panStartScroll = 0;
+  const activePointers = new Map(); // multi-touch 팬
+
+  let _editorRect = null;
+  function clientToLocal(e){
+    // getBoundingClientRect()는 강제 리플로우를 유발한다.
+    // 드래그/팬 중 pointermove가 초당 수십 번 발생하므로 매번 다시 읽지 않고
+    // resize 시점에만 캐시한다 (본게임과 동일한 최적화).
+    if(!_editorRect) _editorRect = canvas.getBoundingClientRect();
+    const r = _editorRect;
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
+  let panPointerId = null;
+  function beginPan(y, pointerId){
+    panPointerId = pointerId == null ? null : pointerId;
+    panning = true;
+    panStartY = y;
+    panStartScroll = scrollBeat;
+  }
+
+  canvas.addEventListener('pointerdown', e=>{
+    canvas.setPointerCapture(e.pointerId);
+    const { x, y } = clientToLocal(e);
+    activePointers.set(e.pointerId, { x, y });
+    const lane = xToLane(x);
+    const beat = yToBeat(y);
+
+    // 두 손가락 → 스크롤
+    if(activePointers.size >= 2){
+      drag = null;
+      beginPan(y, e.pointerId);
+      return;
+    }
+    // 가운데 버튼 / Alt / Space / 레인 밖 → 스크롤
+    if(e.button === 1 || e.altKey || spaceDown || lane < 0){
+      beginPan(y, e.pointerId);
+      return;
+    }
+    if(e.button === 2 || tool === 'erase'){
+      eraseAt(beat, lane >= 0 ? lane : 0);
+      return;
+    }
+    if(tool === 'speed'){
+      addSpeedTrigger(beat);
+      return;
+    }
+    if(lane < 0) return;
+    if(tool === 'hold'){
+      drag = { tool: 'hold', lane, startBeat: snapBeat(beat), curBeat: snapBeat(beat) };
+      drawEditor();
+      return;
+    }
+    if(tool === 'slide'){
+      // path는 드래그 중 레인이 바뀔 때마다 pointermove에서 채워진다
+      // (게임 쪽 입력 판정과 동일하게 "레인이 바뀐 순간"을 지점으로 기록).
+      drag = { tool: 'slide', lane, startBeat: snapBeat(beat), curBeat: snapBeat(beat), curLane: lane, path: [] };
+      drawEditor();
+      return;
+    }
+    addTap(beat, lane);
+  });
+
+  let _drawScheduled = false;
+  function scheduleDraw(){
+    // pointermove는 화면 주사율보다 훨씬 자주 발생할 수 있어(터치 폴링레이트),
+    // 매번 즉시 drawEditor()를 부르면 중복 렌더링이 쌓인다.
+    // rAF로 한 프레임에 한 번만 그리도록 묶는다 (드래그/팬 중 체감 차이가 크다).
+    if(_drawScheduled) return;
+    _drawScheduled = true;
+    requestAnimationFrame(()=>{ _drawScheduled = false; drawEditor(); });
+  }
+
+  canvas.addEventListener('pointermove', e=>{
+    const { x, y } = clientToLocal(e);
+    if(activePointers.has(e.pointerId)) activePointers.set(e.pointerId, { x, y });
+    if(panning){
+      if(panPointerId != null && e.pointerId !== panPointerId) return;   // 두 손가락 중 한 포인터만 기준
+      const dy = y - panStartY;
+      // 손가락/마우스를 아래로 → 차트가 손가락을 따라 내려오며 위쪽(이후 박)이 보인다
+      scrollBeat = clampScroll(panStartScroll + dy / pxPerBeat);
+      scheduleDraw();
+      return;
+    }
+    if(drag){
+      if(drag.tool === 'slide'){
+        const lane2 = xToLane(x);
+        const beat2 = yToBeat(y);
+        drag.curBeat = snapBeat(beat2);
+        if(lane2 >= 0) drag.curLane = lane2;
+        // 드래그로 레인을 넘을 때마다 그 순간(현재 박)을 다음 지점으로 기록.
+        // 시간은 항상 이전 지점보다 뒤여야 하므로 스냅 결과가 뒤로 밀릴 수 있다.
+        const lastLane = drag.path.length ? drag.path[drag.path.length - 1].lane : drag.lane;
+        if(lane2 >= 0 && lane2 !== lastLane){
+          const prevT = drag.path.length ? drag.path[drag.path.length - 1].t : drag.startBeat;
+          let t = snapBeat(beat2);
+          if(t <= prevT) t = prevT + 1 / snapDiv;
+          if(t <= totalBeats()) drag.path.push({ lane: lane2, t });
+        }
+        scheduleDraw();
+      } else {
+        drag.curBeat = snapBeat(yToBeat(y));
+        scheduleDraw();
+      }
+    }
+  });
+
+  canvas.addEventListener('pointerup', e=>{
+    activePointers.delete(e.pointerId);
+    if(panning){
+      // 한 손 남으면 팬 종료, 두 손이었다면 한쪽 떼도 종료
+      if(e.pointerId === panPointerId || activePointers.size < 2) panning = false;
+      return;
+    }
+    if(drag){
+      if(drag.tool === 'slide'){
+        addSlide(drag.startBeat, drag.lane, drag.path);
+      } else {
+        addHold(drag.startBeat, drag.curBeat, drag.lane);
+      }
+      drag = null;
+      drawEditor();
+    }
+  });
+
+  canvas.addEventListener('pointercancel', e=>{
+    activePointers.delete(e.pointerId);
+    panning = false; drag = null; drawEditor();
+  });
+
+  canvas.addEventListener('contextmenu', e=> e.preventDefault());
+
+  canvas.addEventListener('wheel', e=>{
+    e.preventDefault();
+    // 트랙패드/마우스 휠 정규화 (아래로 스크롤 = 아래쪽 = 이전 박으로)
+    let dy = e.deltaY;
+    if(e.deltaMode === 1) dy *= 16;      // lines → px 대략
+    if(e.deltaMode === 2) dy *= H;       // pages
+    // 감도: 픽셀 기준 → 박
+    scrollBeat = clampScroll(scrollBeat - dy / pxPerBeat);
+    drawEditor();
+  }, { passive:false });
+
+  window.addEventListener('keydown', e=>{
+    if(e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+    if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z'){
+      e.preventDefault();
+      undo();
+      return;
+    }
+    if(e.code === 'Space' && !e.repeat){
+      e.preventDefault();
+      spaceDown = true;
+    }
+    if(e.key === 'ArrowUp'){          // 위 = 이후 박 (화면에서 위가 미래)
+      e.preventDefault();
+      scrollBeat = clampScroll(scrollBeat + 1);
+      drawEditor();
+    }
+    if(e.key === 'ArrowDown'){        // 아래 = 이전 박
+      e.preventDefault();
+      scrollBeat = clampScroll(scrollBeat - 1);
+      drawEditor();
+    }
+  });
+  window.addEventListener('keyup', e=>{
+    if(e.code === 'Space') spaceDown = false;
+  });
+  window.addEventListener('blur', ()=>{
+    spaceDown = false;
+    for(const k in pKeys) pKeys[k] = false;
+  });
+
+  // ===== 툴바 =====
+  function setTool(t){
+    tool = t;
+    [['tool-tap','tap'],['tool-hold','hold'],['tool-slide','slide'],['tool-speed','speed'],['tool-erase','erase']].forEach(([id,val])=>{
+      const el = document.getElementById(id);
+      if(!el) return;
+      const on = t === val;
+      el.classList.toggle('active', on);
+      el.setAttribute('aria-pressed', String(on));
+    });
+  }
+  document.getElementById('tool-tap').onclick = ()=> setTool('tap');
+  document.getElementById('tool-hold').onclick = ()=> setTool('hold');
+  document.getElementById('tool-slide').onclick = ()=> setTool('slide');
+  document.getElementById('tool-speed').onclick = ()=> setTool('speed');
+  document.getElementById('tool-erase').onclick = ()=> setTool('erase');
+
+  function setSnap(d){
+    snapDiv = d;
+    ['4','8','16'].forEach(s=>{
+      const el = document.getElementById('snap-'+s);
+      const on = String(d)===s;
+      el.classList.toggle('active', on);
+      el.setAttribute('aria-pressed', String(on));
+    });
+  }
+  document.getElementById('snap-4').onclick = ()=> setSnap(4);
+  document.getElementById('snap-8').onclick = ()=> setSnap(8);
+  document.getElementById('snap-16').onclick = ()=> setSnap(16);
+
+  bpmInput.onchange = ()=>{
+    bpm = Math.max(60, Math.min(300, parseInt(bpmInput.value,10)||176));
+    bpmInput.value = bpm;
+    syncScaleToPlay();
+    drawEditor();
+  };
+  barsInput.onchange = ()=>{
+    bars = Math.max(4, Math.min(64, parseInt(barsInput.value,10)||16));
+    // 이미 배치된 노트·트리거가 범위 밖으로 숨지 않도록 마지막 위치까지는 유지
+    let lastBeat = 0;
+    for(const n of notes){
+      lastBeat = Math.max(lastBeat, n.t + (n.hold || 0));
+      if(Array.isArray(n.slide)) for(const wp of n.slide) lastBeat = Math.max(lastBeat, wp.t);
+    }
+    for(const tr of speedTriggers) lastBeat = Math.max(lastBeat, tr.t);
+    const minBars = Math.max(4, Math.ceil(lastBeat / 4 - 1e-9));
+    if(bars < minBars){ bars = Math.min(64, minBars); flashStatus('배치된 노트 때문에 최소 '+bars+'마디'); }
+    barsInput.value = bars;
+    scrollBeat = clampScroll(scrollBeat);
+    drawEditor();
+  };
+
+  document.getElementById('scroll-up').onclick = ()=>{
+    scrollBeat = clampScroll(scrollBeat + visibleBeats() * 0.4);   // 위 = 이후 박
+    drawEditor();
+  };
+  document.getElementById('scroll-down').onclick = ()=>{
+    scrollBeat = clampScroll(scrollBeat - visibleBeats() * 0.4);   // 아래 = 이전 박
+    drawEditor();
+  };
+
+  function refreshSpeedLabel(){
+    const el = document.getElementById('speed-label');
+    if(el) el.textContent = speedRate.toFixed(2) + '×';
+  }
+  function changeSpeed(delta){
+    speedRate = Math.max(0.75, Math.min(2, Math.round((speedRate + delta) * 20) / 20));
+    safeLS.set('neonBeatSpeed', String(speedRate));
+    refreshSpeedLabel();
+    syncScaleToPlay();
+    drawEditor();
+  }
+  document.getElementById('speed-minus').onclick = ()=> changeSpeed(-0.05);
+  document.getElementById('speed-plus').onclick = ()=> changeSpeed(0.05);
+  refreshSpeedLabel();
+
+  document.getElementById('btn-clear').onclick = ()=>{
+    if((notes.length || speedTriggers.length) && !confirm('모든 노트·속도 트리거를 지울까요?')) return;
+    pushHistory();
+    notes = [];
+    speedTriggers = [];
+    refreshStatus();
+    drawEditor();
+  };
+  document.getElementById('btn-undo').onclick = ()=> undo();
+  document.getElementById('btn-help').onclick = ()=>{
+    const m = document.getElementById('help-modal');
+    if(m) m.classList.add('show');
+  };
+  document.getElementById('help-close').onclick = ()=>{
+    const m = document.getElementById('help-modal');
+    if(m) m.classList.remove('show');
+  };
+
+  // ===== Song ID: 브라우저 보관함에서 선택 (파일은 추가용) =====
+  const songFileInput = document.getElementById('song-file');
+  document.getElementById('btn-song-lib').onclick = ()=> openSongLibrary();
+  document.getElementById('btn-song-clear').onclick = ()=>{
+    currentSong = null;
+    refreshSongLabel();
+    flashStatus('음악 제거됨');
+  };
+  const songModal = document.getElementById('song-modal');
+  document.getElementById('song-modal-close').onclick = ()=> songModal && songModal.classList.remove('show');
+  document.getElementById('song-modal-file').onclick = ()=>{
+    // 모달은 유지한 채 파일 선택 → 추가 후 목록 갱신
+    if(songFileInput) songFileInput.click();
+  };
+  if(songFileInput){
+    songFileInput.addEventListener('change', async ()=>{
+      const file = songFileInput.files && songFileInput.files[0];
+      songFileInput.value = '';
+      if(!file) return;
+      try{
+        statusEl.textContent = '음악 저장 중…';
+        currentSong = await idbSaveSong(file);
+        refreshSongLabel();
+        flashStatus('브라우저에 저장·선택됨');
+        // 보관함이 열려 있으면 목록 새로고침
+        if(songModal && songModal.classList.contains('show')) openSongLibrary();
+      }catch(err){
+        alert('음악 저장 실패: '+(err && err.message ? err.message : err));
+      }
+    });
+  }
+  refreshSongLabel();
+
+  // ===== 저장 / 불러오기 =====
+  // 압축 형식 예: 1.30-4-0@0,1@0.5,2@1:1.5,3@2|176|16
+  //  = 속도 1.30 · 노트 4개 · lane@beat(:hold) · BPM · 마디
+  function chartObject(){
+    const clean = sanitizeNotes(notes);
+    const o = {
+      version: CHART_FORMAT_VERSION,
+      name: 'Custom Chart',
+      bpm: bpm,
+      bars: bars,
+      speed: speedRate,
+      notes: clean.map(n=>{
+        const x = { t: Math.round(n.t * 1000)/1000, lane: n.lane };
+        if(n.hold) x.hold = Math.round(n.hold * 1000)/1000;
+        if(Array.isArray(n.slide) && n.slide.length){
+          x.slide = n.slide.map(wp=>({ lane: wp.lane, t: Math.round(wp.t * 1000)/1000 }));
+        }
+        return x;
+      }),
+      speedTriggers: speedTriggers.map(tr=>({
+        t: Math.round(tr.t * 1000)/1000,
+        rate: Math.round(tr.rate * 100)/100
+      }))
+    };
+    if(currentSong){
+      o.songId = currentSong.id;
+      o.songName = currentSong.name;
+      o.songDuration = currentSong.duration;
+    }
+    return o;
+  }
+
+  // encodeCompact/parseChartText below are thin wrappers around the shared
+  // js/shared/chart-format.js implementations, keeping this file's existing
+  // call sites (encodeCompact(data), parseChartText(text)) unchanged while
+  // passing this app's fallback bpm/bars/speed and strict:true (the editor
+  // throws on malformed input instead of silently dropping it, per the
+  // modularization report).
+  function encodeCompact(data){
+    return window.encodeCompact(data, speedRate, bpm, bars);
+  }
+
+  function parseChartText(text){
+    return window.parseChartText(text, { bpm, bars, strict: true });
+  }
+
+  function applyChart(data, opts){
+    if(!data || !Array.isArray(data.notes)) throw new Error('잘못된 차트 형식');
+    if(!opts || !opts.noHistory) pushHistory();
+    // 수동 입력(bpmInput/barsInput onchange)과 동일한 범위로 방어적 클램프.
+    // 가져오기/불러오기 경로는 이 클램프를 거치지 않았어서, bpm이 0/음수/비정상이면
+    // beatMs()=60000/bpm 이 Infinity·NaN이 되어 캔버스 전체가 빈 화면으로 깨질 수 있었다.
+    const bpmRaw = Number(data.bpm);
+    bpm = (isFinite(bpmRaw) && bpmRaw > 0) ? Math.max(60, Math.min(300, bpmRaw)) : 176;
+    const barsRaw = Number(data.bars);
+    bars = (isFinite(barsRaw) && barsRaw > 0) ? Math.max(4, Math.min(64, Math.round(barsRaw))) : 16;
+    if(data.speed != null && isFinite(data.speed)){
+      speedRate = Math.max(0.75, Math.min(2, data.speed));
+      safeLS.set('neonBeatSpeed', String(speedRate));
+      if(typeof refreshSpeedLabel === 'function') refreshSpeedLabel();
+      if(typeof syncScaleToPlay === 'function') syncScaleToPlay();
+    }
+    if(data.songId){
+      currentSong = {
+        id: data.songId,
+        name: data.songName || data.songId,
+        duration: data.songDuration || 0
+      };
+    } else {
+      currentSong = null;
+    }
+    refreshSongLabel();
+    bpmInput.value = bpm;
+    barsInput.value = bars;
+    const before = data.notes.length;
+    notes = sanitizeNotes(data.notes);
+    sortNotes();
+    speedTriggers = Array.isArray(data.speedTriggers)
+      ? data.speedTriggers.map(tr=>({
+          t: Number(tr.t),
+          rate: Math.max(0.75, Math.min(2, Number(tr.rate) || 1))
+        })).filter(tr=>isFinite(tr.t))
+      : [];
+    sortTriggers();
+    refreshStatus();
+    drawEditor();
+    if(notes.length < before){
+      flashStatus('겹침 '+(before-notes.length)+'개 제거됨');
+    }
+  }
+
+  function persistChart(data){
+    const json = JSON.stringify(data);
+    const compact = encodeCompact(data);
+    const ok1 = safeLS.set(STORAGE_KEY, json);
+    const ok2 = safeSS.set(STORAGE_KEY, json);
+    safeSS.set(STORAGE_KEY + 'Compact', compact);
+    safeLS.set('neonBeatCustomChartReady', '1');
+    return { json, compact, saved: ok1 || ok2 };
+  }
+
+  /** file:// 에서도 동작: URL 해시로 차트 전달 */
+  function chartToHash(data){
+    const compact = encodeCompact(data);
+    // ASCII only → btoa 안전
+    try{
+      return '#c=' + encodeURIComponent(btoa(compact));
+    }catch(_){
+      return '#c=' + encodeURIComponent(compact);
+    }
+  }
+
+  document.getElementById('btn-save').onclick = ()=>{
+    const data = chartObject();
+    if(!data.notes.length){ alert('저장할 노트가 없습니다.'); return; }
+    const result = persistChart(data);
+    if(result.saved){
+      alert('저장됨.\n· 같은 브라우저면 게임에서 「커스텀 차트 플레이」\n· 안 되면 「게임으로」를 쓰거나 내보내기 코드를 붙여넣으세요.');
+    } else {
+      alert('브라우저 저장소에 저장하지 못했습니다(용량 초과 또는 저장소 차단).\n대신 「내보내기」로 코드를 복사해 두거나 「게임으로」를 사용하세요.');
+    }
+  };
+
+  document.getElementById('btn-load').onclick = ()=>{
+    const raw = safeLS.get(STORAGE_KEY, null) || safeSS.get(STORAGE_KEY, null);
+    if(!raw){ alert('저장된 차트가 없습니다.'); return; }
+    try{
+      applyChart(typeof raw === 'string' && raw[0] === '{' ? JSON.parse(raw) : parseChartText(raw));
+    }catch(err){ alert('불러오기 실패: '+err.message); }
+  };
+
+  document.getElementById('btn-to-game').onclick = ()=>{
+    if(notes.length === 0){ alert('노트를 먼저 배치하세요.'); return; }
+    const data = chartObject();
+    persistChart(data);
+    // 해시로 넘겨 file:// localStorage 분리 문제 회피
+    location.href = 'neon-beat.html' + chartToHash(data);
+  };
+
+  const ioModal = document.getElementById('io-modal');
+  const ioText = document.getElementById('io-text');
+  const ioTitle = document.getElementById('io-title');
+  let ioMode = 'export';
+
+  document.getElementById('btn-export').onclick = ()=>{
+    ioMode = 'export';
+    ioTitle.textContent = '내보내기 (압축 / JSON)';
+    const data = chartObject();
+    ioText.value = encodeCompact(data) + '\n\n' + JSON.stringify(data, null, 2);
+    ioModal.classList.add('show');
+  };
+  document.getElementById('btn-import').onclick = ()=>{
+    ioMode = 'import';
+    ioTitle.textContent = '가져오기 (압축 또는 JSON)';
+    ioText.value = '';
+    ioModal.classList.add('show');
+  };
+  document.getElementById('io-cancel').onclick = ()=> ioModal.classList.remove('show');
+  document.getElementById('io-ok').onclick = ()=>{
+    if(ioMode === 'export'){
+      // 압축 한 줄만 복사
+      const line = ioText.value.split('\n')[0];
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(line).then(()=>{
+          alert('압축 코드 복사됨:\n'+line);
+        }).catch(()=>{
+          ioText.select();
+          alert('클립보드 복사에 실패했습니다. 선택된 텍스트를 직접 복사해 주세요.');
+        });
+      } else {
+        ioText.select();
+      }
+      ioModal.classList.remove('show');
+      return;
+    }
+    try{
+      let text = ioText.value.trim();
+      if(!text) throw new Error('내용이 비어 있습니다');
+      // '{' 가 있으면 그 지점부터를 JSON으로 우선 파싱한다(내보내기 형식과 정확히 일치).
+      // 압축 줄에 우연히 '-'가 들어가는 경우(예: 곡 이름)에도 안전하게 동작한다.
+      const jsonStart = text.indexOf('{');
+      const data = jsonStart !== -1
+        ? JSON.parse(text.slice(jsonStart))
+        : parseChartText(text.split('\n')[0].trim());
+      applyChart(data);
+      ioModal.classList.remove('show');
+    }catch(err){
+      alert('가져오기 실패: '+err.message);
+    }
+  };
+
+  // ===== 플레이 테스트 =====
+  const playOverlay = document.getElementById('play-overlay');
+  const playCanvas = document.getElementById('play-canvas');
+  const pctx = playCanvas.getContext('2d');
+  let playing = false, playRAF = 0;
+  let pW=0, pH=0, pJudgeY=0, pLaneW=0;
+  let pTravelPx = 400, pScrollK = 0, curPScroll = 0;
+  // ===== 속도 트리거용 스크롤-시간 적분 (본 게임과 동일한 방식, js/shared/speed-scroll.js) =====
+  // 노트 위치를 "현재 배속 × 남은시간"으로 직접 계산하면, 트리거로 배속이
+  // 바뀌는 순간 화면 위 노트마다 남은시간이 달라서 서로 다른 비율로 튀어
+  // 노트 사이 간격이 일그러진다. 대신 시간 t까지의 누적 스크롤량을 구간별로
+  // 적분해두고, 각 노트는 스폰 시 자신의 hitTime에 해당하는 스크롤값을 한 번만
+  // 캐싱한다. 그러면 트리거 순간에도 위치가 끊기지 않고 간격이 항상 유지된다.
+  // Own timeline instance — independent from the real game's (see report:
+  // "Independent timelines", each app must own its own createSpeedTimeline()).
+  const editorSpeedTimeline = createSpeedTimeline();
+  let pScrollAtSpawn = (t)=>t;
+  let pScrollAtNow = (t)=>t;
+  function buildPSpeedSegments(startRate, triggersMs){
+    editorSpeedTimeline.build(startRate, triggersMs);
+    pScrollAtSpawn = editorSpeedTimeline.makeScroller();
+    pScrollAtNow = editorSpeedTimeline.makeScroller();
+  }
+  let pNotes = [], pSongTime = 0, pStart = 0;
+  let pScore=0, pCombo=0, pHits=0, pJudged=0;
+  const pKeys = {0:false,1:false,2:false,3:false};
+  let audioCtx = null, masterGain = null;
+  let pMusic = null, pMusicUrl = null, pMusicStarted = false;
+
+  function initAudio(){
+    if(audioCtx) return;
+    try{
+      audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = 0.3;
+      masterGain.connect(audioCtx.destination);
+    }catch(_){
+      audioCtx = null;
+      masterGain = null;
+    }
+  }
+  function beep(t, freq, dur){
+    if(!audioCtx || qualityLow()) return; // 저사양·적응형: 오디오 이펙트 생략
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.frequency.value = freq;
+    o.type = 'square';
+    g.gain.setValueAtTime(0.15, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t+dur);
+    o.connect(g); g.connect(masterGain);
+    o.start(t); o.stop(t+dur);
+  }
+
+  function resizePlay(){
+    const wrap = document.getElementById('play-canvas-wrap');
+    const r = wrap.getBoundingClientRect();
+    let maxDpr = (window.innerWidth > window.innerHeight) ? 1.5 : 2;
+    if(lowDetail) maxDpr = 1;
+    const d = Math.min(window.devicePixelRatio||1, maxDpr);
+    pW = Math.floor(r.width); pH = Math.floor(r.height);
+    playCanvas.width = Math.floor(pW*d);
+    playCanvas.height = Math.floor(pH*d);
+    playCanvas.style.width = pW+'px';
+    playCanvas.style.height = pH+'px';
+    pctx.setTransform(d,0,0,d,0,0);
+    const landscape = pW > pH * 1.05;
+    if(landscape){
+      const trackW = Math.min(pW * 0.88, pH * 2.2);
+      pLaneW = trackW / 4;
+      pJudgeY = pH * 0.70;
+    } else {
+      pLaneW = Math.min(90, pW * 0.2);
+      pJudgeY = pH * 0.78;
+    }
+    pTravelPx = Math.max(100, pJudgeY - 40);
+    pScrollK = pTravelPx / BASE_APPROACH_MS;
+  }
+
+  let _startingPlay = false;
+  async function startPlay(){
+    if(_startingPlay) return;
+    _startingPlay = true;
+    try{ await _startPlayImpl(); } finally { _startingPlay = false; }
+  }
+  async function _startPlayImpl(){
+    if(notes.length === 0){ alert('노트를 먼저 배치하세요.'); return; }
+    initAudio();
+    // 이전 음악 정리
+    if(pMusic){ try{ pMusic.pause(); }catch(_){ } pMusic = null; }
+    if(pMusicUrl){ URL.revokeObjectURL(pMusicUrl); pMusicUrl = null; }
+    pMusicStarted = false;
+    // 음악·노트 준비 후 시계 시작 (시작 렉 완화)
+    if(currentSong && currentSong.id){
+      try{
+        const row = await idbGetSong(currentSong.id);
+        if(row && row.blob){
+          pMusicUrl = URL.createObjectURL(row.blob);
+          pMusic = new Audio(pMusicUrl);
+          pMusic.preload = 'auto';
+          try{ pMusic.load(); }catch(_){}
+        } else {
+          flashStatus('Song ID 오디오 없음 (다시 불러오기)');
+        }
+      }catch(_){ flashStatus('음악 로드 실패'); }
+    }
+    if(audioCtx && audioCtx.state === 'suspended'){
+      try{ await audioCtx.resume(); }catch(_){}
+    }
+    const bm = beatMs();
+    pScore=0; pCombo=0; pHits=0; pJudged=0;
+    pMaxCombo = 0; pEndAt = 0; pMusicShift = 0;
+    document.getElementById('play-result').style.display = 'none';
+    pSongTime=0;
+    for(const k in pKeys) pKeys[k]=false;
+    if(typeof pPointerLaneMap !== 'undefined') pPointerLaneMap.clear();
+    // 속도 트리거 (ms, PREP 포함)
+    pPlaySpeed = speedRate;
+    pOffset = Math.max(-150, Math.min(150, parseInt(safeLS.get('neonBeatOffset','0'),10) || 0));
+    pSpeedTriggersMs = speedTriggers.map(tr=>({
+      t: PREP_MS + tr.t * bm,
+      rate: Math.max(0.75, Math.min(2, tr.rate))
+    })).sort((a,b)=>a.t-b.t);
+    pTriggerIdx = 0;
+    // 스크롤 적분 세그먼트 구성 (트리거를 지나도 노트 간 간격이 뒤틀리지 않게 함)
+    buildPSpeedSegments(pPlaySpeed, pSpeedTriggersMs);
+    pNotes = notes.map(n=>{
+      const hitTime = PREP_MS + n.t * bm;
+      const holdDur = n.hold ? n.hold * bm : 0;
+      const holdEndTime = hitTime + holdDur;
+      const obj = {
+        lane: n.lane,
+        hitTime,
+        holdDur,
+        isHold: !!n.hold,
+        holdEndTime,
+        hitScroll: pScrollAtSpawn(hitTime),
+        tailScroll: n.hold ? pScrollAtSpawn(holdEndTime) : 0,
+        judged: false, hit: false, holding: false,
+        y: 0, tailY: 0
+      };
+      // 슬라이드 체인도 테스트플레이에서 실제로 판정되도록 함께 넘긴다
+      // (지점 시간에도 PREP_MS를 더해 헤드와 같은 시계를 쓰게 한다).
+      if(Array.isArray(n.slide) && n.slide.length){
+        obj.slide = n.slide.map(wp=>({ lane: wp.lane, t: PREP_MS + wp.t * bm }));
+        obj.slidePts = obj.slide.map(wp=>({ lane: wp.lane, t: wp.t, scroll: pScrollAtSpawn(wp.t), y: 0 }));
+        obj.slideIdx = 0;
+      }
+      return obj;
+    });
+    playing = true;
+    playOverlay.classList.add('show');
+    resizePlay();
+    pLastTs = 0;
+    autoLow = false;
+    _frameSamples.length = 0;
+    _autoLowStreak = 0;
+    updatePlayHUD();
+    // 한 프레임 양보 후 시계 시작
+    cancelAnimationFrame(playRAF);
+    requestAnimationFrame(()=>{
+      pStart = performance.now();
+      playRAF = requestAnimationFrame(playLoop);
+    });
+  }
+
+  function finishPlay(){
+    playing = false;
+    cancelAnimationFrame(playRAF);
+    if(pMusic){ try{ pMusic.pause(); }catch(_){ } }
+    for(const k in pKeys) pKeys[k] = false;
+    pPointerLaneMap.clear();
+    const acc = pJudged === 0 ? 100 : Math.round(pHits / pJudged * 1000) / 10;
+    document.getElementById('r-score').textContent = pScore;
+    document.getElementById('r-acc').textContent = acc + '%';
+    document.getElementById('r-combo').textContent = pMaxCombo;
+    document.getElementById('r-hits').textContent = pHits;
+    document.getElementById('r-judged').textContent = pJudged;
+    document.getElementById('play-result').style.display = 'flex';
+  }
+
+  function stopPlay(){
+    document.getElementById('play-result').style.display = 'none';
+    playing = false;
+    cancelAnimationFrame(playRAF);
+    if(pMusic){ try{ pMusic.pause(); }catch(_){ } pMusic = null; }
+    if(pMusicUrl){ URL.revokeObjectURL(pMusicUrl); pMusicUrl = null; }
+    pMusicStarted = false;
+    playOverlay.classList.remove('show');
+  }
+
+  function updatePlayHUD(){
+    if(pCombo > pMaxCombo) pMaxCombo = pCombo;
+    document.getElementById('p-score').textContent = pScore;
+    document.getElementById('p-combo').textContent = pCombo;
+    const acc = pJudged===0 ? 100 : Math.round(pHits/pJudged*100);
+    document.getElementById('p-acc').textContent = acc+'%';
+    const sp = document.getElementById('p-speed');
+    if(sp) sp.textContent = (pPlaySpeed || speedRate).toFixed(2) + '×';
+  }
+
+  // opts.skipEmptyPenalty: drag lane-change must not empty-MISS (slide waypoints
+  // are not registered on intermediate lane queues — same fix as the real game).
+  function playTryHit(lane, opts){
+    if(!playing) return;
+    // Same selection rule as the real game's tryHit (js/game/input.js): pNotes
+    // is sorted ascending by hitTime (same order as `notes`), so scanning in
+    // order and locking onto the FIRST unjudged match — instead of whichever
+    // note is numerically closest — always resolves same-lane collisions to
+    // the earlier note, exactly like the game's per-lane queue does. Picking
+    // the closest note instead let a later note "steal" a hit that the real
+    // game would have given to an earlier one whenever two notes on the same
+    // lane were both inside the miss window at once (e.g. a fast triplet).
+    const pjt0 = pSongTime - pOffset;
+    let best=null, bestSigned=0;
+    for(const n of pNotes){
+      if(n.judged || n.holding) continue;
+      if(n.hitTime - pjt0 > HIT_WINDOWS.miss) break; // pNotes ascending → nothing later can match either
+      if(n.lane !== lane) continue;
+      const signed = pjt0 - n.hitTime;
+      if(Math.abs(signed) <= HIT_WINDOWS.miss){ best=n; bestSigned=signed; break; }
+    }
+    if(!best){
+      if(opts && opts.skipEmptyPenalty) return;
+      // Same empty-lane penalty as the real game (-50)
+      pJudged++; pCombo=0; pScore=Math.max(0,pScore-50);
+      updatePlayHUD(); return;
+    }
+    // Formula shared with the real game (js/shared/gameplay.js) — this app
+    // just supplies its own (looser) HIT_WINDOWS.
+    const ev = judgeDelta(bestSigned, HIT_WINDOWS);
+    const pts = ev ? ev.points : 50;
+    if(best.isHold){
+      best.holding = true;
+      best.headHit = true;
+      best.headMult = holdHeadMult(ev ? ev.judge : 'BAD');
+      best.nextTick = best.hitTime + beatMs() * 0.5;
+      pCombo++;
+      pScore += Math.round(pts * HOLD_SCORE.headScale) + Math.min(pCombo,50)*2;
+    } else {
+      best.judged=true; best.hit=true;
+      pJudged++; pHits++; pCombo++;
+      pScore+=pts+Math.min(pCombo,50)*2;
+    }
+    updatePlayHUD();
+    if(audioCtx) beep(audioCtx.currentTime, 600+lane*80, 0.06);
+  }
+
+  let pTriggerIdx = 0;
+  let pOffset = 0;
+  let pMaxCombo = 0, pEndAt = 0, pMusicShift = 0;   // 본 게임과 같은 타이밍 오프셋(ms)
+  let pPlaySpeed = 1;
+  let pSpeedTriggersMs = [];
+  let pLastTs = 0;
+
+  function playLoop(ts){
+    if(!playing) return;
+    if(!pLastTs) pLastTs = ts || performance.now();
+    const frameDt = Math.min(50, (ts || performance.now()) - pLastTs);
+    pLastTs = ts || performance.now();
+    updateAdaptiveQuality(frameDt);
+    const elapsed = performance.now() - pStart;
+    if(pMusic){
+      if(elapsed >= PREP_MS && !pMusicStarted){
+        pMusicStarted = true;
+        const a = pMusic;
+        requestAnimationFrame(()=>{
+          try{ a.currentTime = 0; a.play().catch(()=>{}); }catch(_){}
+        });
+      }
+      // 시계 연속성: 음악 위치와의 차이를 프레임당 최대 1.5ms씩만 맞춘다 (시작 순간 점프 방지)
+      if(pMusicStarted && !pMusic.paused && pMusic.currentTime > 0){
+        const diff = PREP_MS + pMusic.currentTime * 1000 - elapsed;
+        const err = diff - pMusicShift;
+        if(Math.abs(err) > 250) pMusicShift = diff;
+        else pMusicShift += Math.max(-1.5, Math.min(1.5, err * 0.1));
+        pSongTime = elapsed + pMusicShift;
+      } else {
+        pSongTime = elapsed + pMusicShift;
+      }
+    } else {
+      pSongTime = elapsed;
+    }
+    // 속도 트리거: 통과 시 배속 갱신 (표시용)
+    while(pTriggerIdx < pSpeedTriggersMs.length && pSongTime >= pSpeedTriggersMs[pTriggerIdx].t){
+      const tr = pSpeedTriggersMs[pTriggerIdx];
+      pPlaySpeed = Math.max(0.75, Math.min(2, Number(tr.rate) || 1));
+      pTriggerIdx++;
+      updatePlayHUD();
+    }
+    // 위치 + 홀드 + 슬라이드 웨이포인트 + 미스
+    curPScroll = pScrollAtNow(pSongTime);
+    const pK = pScrollK;
+    const pjt = pSongTime - pOffset;
+    let pHud = false;
+    for(const n of pNotes){
+      if(n.judged && n.hit && (!n.slide || n.slideIdx >= n.slide.length)) continue;
+      n.y = pJudgeY - (n.hitScroll - curPScroll) * pK;
+      if(n.isHold) n.tailY = pJudgeY - (n.tailScroll - curPScroll) * pK;
+      if(n.slidePts){
+        for(const p of n.slidePts) p.y = pJudgeY - (p.scroll - curPScroll) * pK;
+      }
+      if(n.isHold && !n.judged && n.holding){
+        const released = !pKeys[n.lane];
+        if(released && pjt < n.holdEndTime - HIT_WINDOWS.good){
+          n.judged=true; n.hit=false; n.holding=false;
+          pCombo=0; pJudged++; pHud = true;
+        } else {
+          const mult = n.headMult || 1;
+          if(!released){
+            let tickScored = false;
+            while(n.nextTick < n.holdEndTime && pjt >= n.nextTick){
+              pScore += Math.round(HOLD_SCORE.tickBase * mult);
+              n.nextTick += beatMs() * 0.5;
+              tickScored = true;
+            }
+            if(tickScored){
+              const se = document.getElementById('p-score');
+              if(se) se.textContent = pScore;
+            }
+          }
+          if(released || pjt >= n.holdEndTime){
+            const absTail = Math.abs(pjt - n.holdEndTime);
+            n.judged=true; n.hit=true; n.holding=false;
+            pJudged++; pHits++; pCombo++;
+            const beats = Math.max(0.5, n.holdDur / beatMs());
+            const tail = holdTailJudgment(absTail, HIT_WINDOWS, HOLD_SCORE);
+            pScore += HOLD_SCORE.completeBase + Math.round(beats * HOLD_SCORE.perBeat * mult) + tail.bonus + Math.min(pCombo,50)*2;
+            pHud = true;
+            if(audioCtx) beep(audioCtx.currentTime, 880, 0.08);
+          }
+        }
+      }
+      // 슬라이드 웨이포인트 판정 (본 게임과 동일: GOOD 창 + 해당 레인 입력)
+      if(n.slide && n.judged && n.hit && n.slideIdx < n.slide.length){
+        while(n.slideIdx < n.slide.length){
+          const wp = n.slide[n.slideIdx];
+          if(pjt < wp.t - HIT_WINDOWS.good) break;
+          if(pjt <= wp.t + HIT_WINDOWS.good){
+            if(pKeys[wp.lane]){
+              pScore += SLIDE_WAYPOINT_SCORE;
+              pCombo++;
+              pJudged++;
+              pHits++;
+              n.slideIdx++;
+              pHud = true;
+              if(audioCtx) beep(audioCtx.currentTime, 700 + wp.lane*60, 0.05);
+              continue;
+            }
+            break;
+          }
+          n.slideIdx++;
+          pCombo = 0;
+          pJudged++;
+          pHud = true;
+        }
+      }
+      if(!n.judged && !n.holding && pjt - n.hitTime > HIT_WINDOWS.miss){
+        n.judged=true; n.hit=false; pCombo=0; pJudged++; pHud = true;
+        if(n.slide) pJudged += n.slide.length;   // 머리를 놓치면 체인 지점도 미스로 집계
+      }
+    }
+    if(pHud) updatePlayHUD();
+
+    // 모든 노트(홀드·슬라이드 체인 포함)가 판정되면 잠시 뒤 결과 표시
+    let allDone = pNotes.length > 0;
+    for(const n of pNotes){
+      if(!n.judged || (n.hit && n.slide && n.slideIdx < n.slide.length)){ allDone = false; break; }
+    }
+    if(allDone){
+      if(!pEndAt) pEndAt = performance.now();
+      else if(performance.now() - pEndAt > 700){ finishPlay(); return; }
+    } else pEndAt = 0;
+
+    // ===== 드로우 =====
+    pctx.clearRect(0,0,pW,pH);
+    const total = pLaneW*4;
+    const sx = (pW-total)/2;
+    for(let i=0;i<4;i++){
+      pctx.fillStyle = 'rgba(255,255,255,0.03)';
+      pctx.fillRect(sx+i*pLaneW,0,pLaneW,pH);
+      pctx.fillStyle = LANE_COLORS[i];
+      pctx.font='bold 14px Orbitron';
+      pctx.textAlign='center';
+      pctx.fillText(KEYS[i], sx+i*pLaneW+pLaneW/2, pJudgeY+28);
+    }
+    pctx.strokeStyle='rgba(255,255,255,0.7)';
+    pctx.lineWidth=3;
+    pctx.beginPath();
+    pctx.moveTo(sx,pJudgeY); pctx.lineTo(sx+total,pJudgeY);
+    pctx.stroke();
+    pctx.lineWidth=1;
+
+    // 노트끼리 겹칠 때 헤드/테일이 다른 노트의 몸통에 가려지지 않도록,
+    // 모든 노트의 몸통(+중간 웨이포인트)을 먼저 그린 뒤 헤드/테일은
+    // deferredCaps에 모아뒀다가 맨 마지막에 한 번에 그린다.
+    const deferredCaps = [];
+    const deferredOutlines = [];
+    for(const n of pNotes){
+      if(n.judged && n.hit && (!n.slide || n.slideIdx >= n.slide.length)) continue;
+      const x = sx+n.lane*pLaneW+8;
+      const w = pLaneW-16;
+      const color = LANE_COLORS[n.lane];
+      if(n.isHold && !(n.judged&&n.hit)){
+        const hy = n.holding ? pJudgeY : n.y;
+        const ty = n.tailY;
+        let top = Math.min(hy,ty), bot = n.holding ? pJudgeY : Math.max(hy,ty);
+        if(top < -4) top = -4;
+        if(bot > pH + 4) bot = pH + 4;
+        if(bot-top>2){
+          pctx.fillStyle = n.holding ? LANE_COLORS_HOLD[n.lane] : LANE_COLORS_DIM[n.lane];
+          pctx.fillRect(x+4, top, w-8, bot-top);
+        }
+        if(ty>-16 && ty<pH+16){
+          deferredCaps.push(() => {
+            pctx.fillStyle = color;
+            if(lowDetail) pctx.fillRect(x+2, ty-6, w-4, 12);
+            else { roundRect(pctx, x+2, ty-6, w-4, 12, 6); pctx.fill(); }
+          });
+        }
+      }
+      if(n.slidePts){
+        const pts = n.slidePts;
+        let anchorY = n.y;
+        if(n.judged && n.hit){
+          anchorY = pJudgeY;
+        }
+        const headColor = LANE_COLORS[n.lane];
+        // 직선은 원래 전체 경로로 한 번만 정하고 고정 — 웨이포인트를 지나도 방향이 변하지 않는다
+        const full = [{ x: sx + n.lane*pLaneW + pLaneW/2, y: n.y }];
+        for(let pi = 0; pi < pts.length; pi++){
+          full.push({ x: sx + pts[pi].lane*pLaneW + pLaneW/2, y: pts[pi].y });
+        }
+        slideStraightChain(full);   // 시작~도착 한 직선, 웨이포인트는 색만 변경
+        const chain = slideRemainingChain(full, n.slideIdx, n.judged && n.hit, anchorY);
+        if(chain.length >= 2){
+          const segColors = [];
+          for(let pi = n.slideIdx; pi < pts.length; pi++){
+            segColors.push(slideSegStyle(headColor, LANE_COLORS[pts[pi].lane]));
+          }
+          // 몸통·외곽선이 같은 캡 도형으로 끝점을 계산하므로 body 그리기 전에 rect를 정한다
+          const _hy = (n.isHold && n.holding) ? pJudgeY : n.y;
+          const _hr = (!n.judged || (n.isHold && !n.hit)) ? { x: x, y: _hy - 9, w: w, h: 18, r: lowDetail ? 0 : 6 } : null;
+          const _ty = chain[chain.length - 1].y;
+          const _tr = (_ty > -20 && _ty < pH + 20)
+            ? slideCapRect(chain[chain.length - 1].x, _ty, w, (pts.length - 1) === n.slideIdx, false) : null;
+          drawSlideBody(pctx, chain, w, segColors, _hr, _tr);
+          for(let ci = 1; ci < chain.length - 1; ci++){
+            const pi = n.slideIdx + ci - 1;
+            if(pi < 0 || pi >= pts.length) continue;
+            const p = chain[ci];
+            if(p.y < -20 || p.y > pH + 20) continue;
+            drawSlideWaypoint(pctx, p.x, p.y, LANE_COLORS[pts[pi].lane], pi === n.slideIdx);
+          }
+          const tailP = pts[pts.length - 1];
+          const tailY = tailP.y;
+          if(tailY > -20 && tailY < pH + 20){
+            const isNext = (pts.length - 1) === n.slideIdx;
+            const lc = LANE_COLORS[tailP.lane];
+            const tailX = chain[chain.length - 1].x;
+            deferredCaps.push(() => {
+              drawSlideCap(pctx, tailX, tailY, w, isNext ? lc : lc + 'bb', isNext, false);
+            });
+          }
+          {
+            const _os = segColors.map(c => ({ edge: c.edge })), _oc = chain, _ow = w;
+            deferredOutlines.push(() => drawSlideOutline(pctx, _oc, _ow, _os, _hr, _tr));
+          }
+        }
+      }
+      if(!n.judged || (n.isHold&&!n.hit)){
+        const hy = (n.isHold&&n.holding)?pJudgeY:n.y;
+        if(hy>-20&&hy<pH+20){
+          deferredCaps.push(() => {
+            pctx.fillStyle=color;
+            if(lowDetail) pctx.fillRect(x, hy-9, w, 18);
+            else { roundRect(pctx,x,hy-9,w,18,6); pctx.fill(); }
+          });
+        }
+      }
+    }
+    // 그리기 순서: 몸통 → 외곽선 → 헤드/테일 캡 (캡이 맨 위)
+    for(const drawOutline of deferredOutlines) drawOutline();
+    for(const drawCap of deferredCaps) drawCap();
+
+    playRAF = requestAnimationFrame(playLoop);
+  }
+
+  document.getElementById('btn-play').onclick = startPlay;
+  document.getElementById('btn-stop').onclick = stopPlay;
+  document.getElementById('btn-replay').onclick = ()=>{ startPlay(); };
+
+  const pKeyCodes = {KeyD:0, KeyF:1, KeyJ:2, KeyK:3};
+  function pLaneFromKey(e){
+    if(e.code) return Object.prototype.hasOwnProperty.call(pKeyCodes, e.code) ? pKeyCodes[e.code] : -1;
+    const m = {d:0,f:1,j:2,k:3}, k = (e.key||'').toLowerCase();
+    return Object.prototype.hasOwnProperty.call(m, k) ? m[k] : -1;
+  }
+  window.addEventListener('keydown', e=>{
+    if(!playing) return;
+    const lane = pLaneFromKey(e);   // e.code 기준 → 한글 IME에서도 동작
+    if(lane >= 0){
+      e.preventDefault();
+      if(!pKeys[lane]){ pKeys[lane]=true; playTryHit(lane); }
+    }
+  });
+  window.addEventListener('keyup', e=>{
+    const lane = pLaneFromKey(e);
+    if(lane >= 0) pKeys[lane]=false;
+  });
+
+  // Touch play — multi-pointer map (same model as the real game) so slide
+  // drags and multi-touch holds work; release only the lifted pointer's lane.
+  const pPointerLaneMap = new Map(); // pointerId -> lane
+  playCanvas.addEventListener('pointerdown', e=>{
+    if(!playing) return;
+    try{ playCanvas.setPointerCapture(e.pointerId); }catch(_){}
+    const r = playCanvas.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const total = pLaneW*4;
+    const sx = (pW-total)/2;
+    if(x<sx||x>sx+total) return;
+    const lane = Math.min(3, Math.floor((x-sx)/pLaneW));
+    pPointerLaneMap.set(e.pointerId, lane);
+    if(!pKeys[lane]){ pKeys[lane]=true; playTryHit(lane); }
+  });
+  playCanvas.addEventListener('pointermove', e=>{
+    if(!playing) return;
+    const oldLane = pPointerLaneMap.get(e.pointerId);
+    if(oldLane === undefined) return;
+    const r = playCanvas.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const total = pLaneW*4;
+    const sx = (pW-total)/2;
+    if(x<sx||x>sx+total) return;
+    const lane = Math.min(3, Math.floor((x-sx)/pLaneW));
+    if(lane === oldLane) return;
+    pPointerLaneMap.set(e.pointerId, lane);
+    let oldStillDown = false;
+    for(const l of pPointerLaneMap.values()){
+      if(l === oldLane){ oldStillDown = true; break; }
+    }
+    if(!oldStillDown) pKeys[oldLane] = false;
+    if(!pKeys[lane]){
+      pKeys[lane]=true;
+      playTryHit(lane, { skipEmptyPenalty: true });
+    }
+  });
+  function pReleasePointer(e){
+    const lane = pPointerLaneMap.get(e.pointerId);
+    if(lane === undefined) return;
+    pPointerLaneMap.delete(e.pointerId);
+    let stillDown = false;
+    for(const l of pPointerLaneMap.values()){
+      if(l === lane){ stillDown = true; break; }
+    }
+    if(!stillDown) pKeys[lane] = false;
+  }
+  playCanvas.addEventListener('pointerup', pReleasePointer);
+  playCanvas.addEventListener('pointercancel', pReleasePointer);
+
+  // 자동 로드 — 「불러오기」 버튼과 동일하게 localStorage 우선, 없으면
+  // sessionStorage로 폴백한다. persistChart()는 둘 중 하나만 저장에 성공해도
+  // saved:true(=「저장됨」 안내)를 반환하므로, 여기서 localStorage만 보면
+  // localStorage가 막혔거나 용량 초과인 브라우저에서 방금 "저장됨"이라고
+  // 안내받은 차트가 새로고침 시 사라져 보이는 문제가 있었다.
+  try{
+    const raw = safeLS.get(STORAGE_KEY, null) || safeSS.get(STORAGE_KEY, null);
+    if(raw) applyChart(typeof raw === 'string' && raw[0] === '{' ? JSON.parse(raw) : parseChartText(raw), { noHistory:true });
+  }catch(_){}
+
+  // 첫 입력에서 AudioContext 워밍 (테스트 시작 렉 완화)
+  function warmAudioOnce(){
+    try{
+      initAudio();
+      if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    }catch(_){}
+    window.removeEventListener('pointerdown', warmAudioOnce);
+    window.removeEventListener('keydown', warmAudioOnce);
+  }
+  window.addEventListener('pointerdown', warmAudioOnce, { once:true });
+  window.addEventListener('keydown', warmAudioOnce, { once:true });
+
+  // ===== 저사양 모드 토글 =====
+  function refreshLowDetailUI(){
+    const el = document.getElementById('btn-low-detail');
+    if(!el) return;
+    el.textContent = lowDetail ? 'ON' : 'OFF';
+    el.setAttribute('aria-pressed', lowDetail ? 'true' : 'false');
+    if(lowDetail) el.classList.add('active');
+    else el.classList.remove('active');
+  }
+  function setLowDetail(on){
+    lowDetail = !!on;
+    try{
+      localStorage.setItem('neonBeatLowDetail', lowDetail ? '1' : '0');
+      localStorage.setItem('neonBeatLowSpec', lowDetail ? '1' : '0');
+    }catch(_){}
+    refreshLowDetailUI();
+    if(typeof resizeEditor === 'function') resizeEditor();
+    if(typeof resizePlay === 'function' && document.getElementById('play-overlay')?.classList.contains('show')){
+      resizePlay();
+    }
+  }
+  const btnLow = document.getElementById('btn-low-detail');
+  if(btnLow) btnLow.addEventListener('click', ()=> setLowDetail(!lowDetail));
+  refreshLowDetailUI();
+
+  resizeEditor();
+  refreshStatus();
+})();
+
+</script>
+</body>
+</html>
